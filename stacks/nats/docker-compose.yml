@@ -1,0 +1,54 @@
+# ==============================================================================
+# Stack: nats — 事件总线传输层
+# ==============================================================================
+# 组成:
+#   opic-nats    NATS Server（含 JetStream 持久化）
+#
+# 对应能力中心（语义在域内，本 stack 只是实现）:
+#   O-SYS 平台底座域 — §2.7 事件类型 / §2.8 事件订阅 / INV-20·22·23·24
+#                      / B-AUTO-03 投递（at-least-once）/ PROC-05 死信处置
+#   本 stack 是上述语义的**第 3 层可替换实现**，不改变任何本体对象与不变量。
+#
+# 边界（务必遵守）:
+#   1. 只做传输与短期缓冲，**不得作为平台状态存储**（否则形成第三真相源，违反 C3）
+#   2. 同步契约仍走统一网关；本通道只承载异步事件（审计留痕依赖 CallAuditRecord）
+#   3. at-least-once ⇒ 消费方必须幂等
+#
+# 网络: opic-net（外部网络，需预先创建）
+# 数据: ${NATS_DATA_DIR}/jetstream
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+services:
+  nats:
+    image: ${NATS_IMAGE:-nats}:${NATS_IMAGE_TAG:-2.14-alpine}
+    container_name: opic-nats
+    restart: always
+    # 鉴权经命令行注入，口令只存在于 .env，不落 configs/ 下的配置文件
+    command:
+      - "-c"
+      - "/etc/nats/nats-server.conf"
+      - "--user"
+      - "${NATS_USER:?NATS_USER 未配置}"
+      - "--pass"
+      - "${NATS_PASSWORD:?NATS_PASSWORD 未配置}"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - ../../configs/nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - ${NATS_DATA_DIR:-/opt/opic/nats/data}:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - opic-net

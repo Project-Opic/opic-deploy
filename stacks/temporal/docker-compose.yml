@@ -1,0 +1,121 @@
+# ==============================================================================
+# Stack: temporal — 流程引擎运行 / 工作流编排运行时
+# ==============================================================================
+# 组成:
+#   opic-temporal-pg     PostgreSQL 16（Temporal 持久化 + 标准可见性存储）
+#   opic-temporal        Temporal Server（auto-setup，首启自动建 schema）
+#   opic-temporal-ui     Temporal Web UI
+#   temporal-admin-tools CLI 工具（profile: tools，非常驻）
+#
+# 对应能力中心（语义在域内，本 stack 只是实现）:
+#   O-SYS 平台底座域 — C5「流程引擎由底座提供」＋ §1.6.3「流程引擎的运行由本域承载」
+#                      ＋ §1.6.1 第 7 行「工作流编排运行时」
+#   O-APP 应用域     — 编排**结构**语义（WorkflowDefinition / INV-45·47 / R-16 / PROC-08）
+#                      本 stack 只负责**跑**，不解释编排结构（合法性判定仍在 O-APP）
+#
+# 可见性存储取舍:
+#   默认使用 **standard visibility**（存储在同一个 PostgreSQL），
+#   不引入 Elasticsearch —— 少一个重量级组件，交付门槛显著降低。
+#   代价：不支持自定义 Search Attribute 的复杂过滤。
+#   若后续需要高级检索，改用 advanced visibility（追加 Elasticsearch）即可，
+#   属于第 3 层实现的替换，**不影响任何本体语义**。
+#
+# ⚠️ 安全（官方默认口径）:
+#   Temporal 的 gRPC frontend 与 Web UI **默认不启用认证**。
+#   本 stack 面向内网部署。对外暴露前必须做访问控制（反向代理 + 鉴权 / mTLS），
+#   详见 README「安全须知」。
+#
+# 网络: opic-net（外部网络）
+# 数据: ${TEMPORAL_PG_DATA_DIR}
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+services:
+  # ----------------------------------------------------------------------------
+  # 持久化 + 可见性存储
+  # ----------------------------------------------------------------------------
+  temporal-postgresql:
+    image: ${TEMPORAL_PG_IMAGE:-postgres}:${TEMPORAL_PG_IMAGE_TAG:-16-alpine}
+    container_name: opic-temporal-pg
+    restart: always
+    environment:
+      POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_PG_PASSWORD:?TEMPORAL_PG_PASSWORD 未配置}
+      POSTGRES_DB: ${TEMPORAL_PG_DB:-temporal}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ${TEMPORAL_PG_DATA_DIR:-/opt/opic/temporal/pgdata}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TEMPORAL_PG_USER:-temporal} -d ${TEMPORAL_PG_DB:-temporal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - opic-net
+
+  # ----------------------------------------------------------------------------
+  # Temporal Server（all-in-one：frontend / history / matching / worker）
+  # 首启由 auto-setup 自动建库表与 schema，幂等可重跑
+  # ----------------------------------------------------------------------------
+  temporal:
+    image: ${TEMPORAL_IMAGE:-temporalio/auto-setup}:${TEMPORAL_IMAGE_TAG:-1.30.4}
+    container_name: opic-temporal
+    restart: always
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: temporal-postgresql
+      POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_PG_PASSWORD:?TEMPORAL_PG_PASSWORD 未配置}
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/development-sql.yaml
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${TEMPORAL_GRPC_PORT:-7233}:7233"
+    volumes:
+      - ../../configs/temporal:/etc/temporal/config/dynamicconfig:ro
+    networks:
+      - opic-net
+
+  # ----------------------------------------------------------------------------
+  # Web UI —— 查看工作流、待办、事件历史
+  # ----------------------------------------------------------------------------
+  temporal-ui:
+    image: ${TEMPORAL_UI_IMAGE:-temporalio/ui}:${TEMPORAL_UI_IMAGE_TAG:-2.34.0}
+    container_name: opic-temporal-ui
+    restart: always
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: ${TEMPORAL_UI_PUBLIC_URL:-http://localhost:8233}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+    networks:
+      - opic-net
+
+  # ----------------------------------------------------------------------------
+  # CLI 工具容器（非常驻）—— 用于健康检查、建 namespace、排障
+  # 启用方式: docker compose --profile tools run --rm temporal-admin-tools <args>
+  # ----------------------------------------------------------------------------
+  temporal-admin-tools:
+    image: ${TEMPORAL_ADMINTOOLS_IMAGE:-temporalio/admin-tools}:${TEMPORAL_ADMINTOOLS_IMAGE_TAG:-1.30.4}
+    container_name: opic-temporal-admin-tools
+    restart: "no"
+    profiles:
+      - tools
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TZ: ${TZ:-Asia/Shanghai}
+    networks:
+      - opic-net

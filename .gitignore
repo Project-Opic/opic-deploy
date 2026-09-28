@@ -1,0 +1,10 @@
+# 配置与密钥
+.env
+
+# 运行时数据（若把 DATA_ROOT 指到仓库内产生的目录）
+data/
+pgdata/
+*.log
+
+# 操作系统噪音
+.DS_Store
