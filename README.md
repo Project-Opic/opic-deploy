@@ -10,6 +10,8 @@ OPIC 智算平台的统一部署与运维仓库。采用 **单一配置文件 �
 | [`temporal`](stacks/temporal/) | Temporal Server ＋ PostgreSQL 16 ＋ Web UI | `O-SYS` **流程引擎运行 / 工作流编排运行时**的第 3 层可替换实现 |
 
 > **两者的归属与边界见 [`docs/O-SYS-集成说明.md`](docs/O-SYS-集成说明.md)** —— 落 stack 之前请先读它：组件只承担**执行器**职责，事件编目、订阅关系、编排结构合法性等**语义权威仍在能力中心**。
+>
+> **部署顺序见 [`docs/部署顺序.md`](docs/部署顺序.md)** —— 覆盖「主机前置 → 数据与身份地基 → 第 3 层中间件 → 23 个能力中心 → 观测收口」的完整顺序、7 条排序判据（J1~J7）与逐条专家理由。**启动正序、停止逆序**。
 
 ---
 
@@ -37,7 +39,7 @@ OPIC 智算平台的统一部署与运维仓库。采用 **单一配置文件 �
 docker network create opic-net
 ```
 
-### 部署 NATS（事件总线）
+### ① 部署 NATS（事件总线）
 
 ```bash
 cp .env.example .env
@@ -50,7 +52,7 @@ bash post-install.sh                      # 校验 JetStream 并打印接入信�
 # 已就绪：nats://127.0.0.1:4222 ｜ 监控 http://127.0.0.1:8222/varz
 ```
 
-### 部署 Temporal（流程引擎运行）
+### ② 部署 Temporal（流程引擎运行）
 
 ```bash
 vim .env                                  # 再填 TEMPORAL_PG_PASSWORD
@@ -88,7 +90,8 @@ opic-deploy/
 │   ├── nats/nats-server.conf          # JetStream 与监听配置
 │   └── temporal/development-sql.yaml  # Temporal 动态配置
 └── docs/
-    └── O-SYS-集成说明.md               # 与能力中心的语义对应与四条硬边界
+    ├── O-SYS-集成说明.md               # 与能力中心的语义对应与四条硬边界
+    └── 部署顺序.md                     # 部署顺序、排序判据（J1~J7）与专家理由 —— 本仓单一事实源
 ```
 
 ---
