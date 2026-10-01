@@ -1,0 +1,64 @@
+# ==============================================================================
+# Stack: traefik — 统一入口网关（壳）
+# ==============================================================================
+# 组成:
+#   opic-traefik    Traefik v3（Docker provider，路由随各栈 label 自动发现）
+#
+# 对应规则（第一步 8 项组件）: 网关。
+#   115 号 v1.1：壳自 S3 镜像就绪后先起（本栈），路由由各 stack 的 labels 声明，
+#   随栈启动自动出现；S17 只做路由收口与验证（116 号 §三决策 2）。
+#   既有 nginx 入口编排退役（legacy 仓遗留）。
+#
+# ⚠️ DEV 实测（192.168.3.200）: 宿主 80/443 被系统 nginx 占用、8080 被 kube-router
+#   占用 → 入口改用高位端口，见 .env 的 TRAEFIK_*_PORT 注释。
+#
+# 网络: opic-net（外部网络）
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+services:
+  traefik:
+    image: ${TRAEFIK_IMAGE:-traefik}:${TRAEFIK_IMAGE_TAG:-v3.7.10}
+    container_name: opic-traefik
+    restart: always
+    command:
+      # Docker provider：只路由显式 traefik.enable=true 的容器
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=${DOCKER_NETWORK:-opic-net}
+      # 只发现带 opic.stack 标签的容器 —— 共享 docker.sock 的宿主上可能有
+      # 其他项目（go-admin-kit 等）的 traefik 路由声明，必须隔离
+      - --providers.docker.constraints=LabelRegex(`opic.stack`,`.+`)
+      # 入口点：web（HTTP）与 websecure（HTTPS，证书后补）
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # DEV：dashboard 开放（api.insecure 供排障；生产必须关闭并走受控路由）
+      - --api.dashboard=true
+      - --api.insecure=true
+      # 健康探针（/ping，挂在 web 入口点上）
+      - --ping=true
+      - --ping.entrypoint=web
+      # 日志与访问日志（排障口径统一）
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "${TRAEFIK_WEB_PORT:-80}:80"
+      - "${TRAEFIK_WEBSECURE_PORT:-443}:443"
+      - "${TRAEFIK_DASHBOARD_PORT:-8088}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # scratch 镜像无 curl/wget；healthcheck 子命令需显式给出入口点与地址
+      test: ["CMD", "traefik", "healthcheck", "--ping=true", "--ping.entrypoint=web", "--entrypoints.web.address=:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - opic-net

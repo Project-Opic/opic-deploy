@@ -1,0 +1,145 @@
+# ==============================================================================
+# Stack: zero-trust — ZITADEL 零信任安全域（S5，运维侧 IdP）
+# ==============================================================================
+# 组成:
+#   opic-zitadel        ZITADEL API/Server（Go，端口 8080）
+#   opic-zitadel-login  ZITADEL Login（Next.js 登录界面，v4 起独立服务，端口 3000）
+#
+# 对应能力中心（语义在域内，本 stack 只是实现）:
+#   O-SEC 零信任安全域 — 全平台唯一登录入口，被 22 个域依赖（115 号 S5）
+#   授权链: Casbin RBAC 优先 → 拒绝则查 ZITADEL/Casdoor → 任一通过即允许
+#   （双 IdP 分工：运维侧 ZITADEL，租户侧 Casdoor —— stacks/casdoor）
+#
+# 配置范式: 沿用 ZITADEL 官方 v4 deploy/compose（api + login + 外部 Postgres），
+#   差异点三处：
+#   ① 数据库不在栈内 → 复用 stacks/database 的统一 PG（库 zitadel 已由 init 建好）
+#   ② 官方栈内嵌 Traefik → 改为向 stacks/traefik 的 opic-traefik 声明 labels
+#      （路由语义与官方一致：/ui/v2/login → login、/ → 301 login、其余 → api）
+#   ③ 直连排障端口默认只绑 127.0.0.1 —— 直连 IP 访问会因 Host 不匹配
+#      ZITADEL_DOMAIN 而 instance not found，属预期；排障用
+#      curl -H "Host: ${ZITADEL_DOMAIN}" http://127.0.0.1:${ZITADEL_API_PORT}
+#
+# 网络: opic-net（外部网络；opic-pg 须已就绪 —— 部署顺序 database → zero-trust）
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+volumes:
+  zitadel-bootstrap:
+
+services:
+  # ── 卷属主初始化（一次性）────────────────────────────────────────────────
+  # Docker 命名卷默认 root 属主，zitadel 镜像以 uid 1000 运行且镜像内无
+  # /zitadel/bootstrap 目录可继承属主 → PAT 写入 permission denied。
+  # 用一次性容器把卷 chown 给 1000（与镜像 USER 一致）。
+  init-perms:
+    image: alpine:3.20
+    container_name: opic-zitadel-init
+    restart: "no"
+    command: chown -R 1000:1000 /zitadel/bootstrap
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap
+    networks:
+      - opic-net
+
+  zitadel:
+    image: ${ZITADEL_IMAGE:-zitadel/zitadel}:${ZITADEL_IMAGE_TAG:-4.19.3}
+    container_name: opic-zitadel
+    restart: always
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY:?ZITADEL_MASTERKEY 未配置（须恰好 32 字符）}" --tlsMode disabled
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+    # 数据库不在本栈（stacks/database 先行），依赖顺序由 install 脚本保证
+    environment:
+      # 数据库（统一 PG；USER 为业务连接，ADMIN 为首启建 schema 用超级用户）
+      ZITADEL_DATABASE_POSTGRES_HOST: opic-pg
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DB_PASSWORD:?ZITADEL_DB_PASSWORD 未配置}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${PG_ADMIN_PASSWORD:?PG_ADMIN_PASSWORD 未配置}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      # 对外地址：必须与浏览器地址栏一致（OIDC issuer 由它构成）
+      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN:?ZITADEL_DOMAIN 未配置}
+      ZITADEL_EXTERNALPORT: ${ZITADEL_EXTERNALPORT:-80}
+      ZITADEL_EXTERNALSECURE: "false"
+      # 首个组织 admin（zitadel-admin@zitadel.localhost）的口令
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD:?ZITADEL_ADMIN_PASSWORD 未配置}
+      # ── login-client 机器用户（Login UI 的 API 凭据来源，官方 v4 范式）──
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: ${LOGIN_CLIENT_PAT_EXPIRATION:-2099-01-01T00:00:00Z}
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://${ZITADEL_DOMAIN}:${ZITADEL_EXTERNALPORT}/ui/v2/login/
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: http://${ZITADEL_DOMAIN}:${ZITADEL_EXTERNALPORT}/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://${ZITADEL_DOMAIN}:${ZITADEL_EXTERNALPORT}/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_SAML_DEFAULTLOGINURLV2: http://${ZITADEL_DOMAIN}:${ZITADEL_EXTERNALPORT}/ui/v2/login/login?samlRequest=
+      TZ: ${TZ:-Asia/Shanghai}
+    # ⚠ 刻意不设 healthcheck：traefik 会过滤非 healthy 容器，而 /app/zitadel ready
+    #   拨测的是经网关的外部域名 —— 两者互等会造成循环依赖（路由不注册 ↔ 不 healthy）。
+    #   就绪判定由 post-install.sh 的网关门禁（healthz + login）承担。
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap
+    ports:
+      # break-glass 直连口，默认只绑回环（生产置 127.0.0.1 保持；排障示例见栈头注释）
+      - "${ZITADEL_API_PORT:-127.0.0.1:18082}:8080"
+    labels:
+      - traefik.enable=true
+      - opic.stack=zero-trust
+      - traefik.docker.network=${DOCKER_NETWORK:-opic-net}
+      # ── 主路由（catch-all）：除 login 相关路径外的全部流量 → ZITADEL API ──
+      - traefik.http.routers.zitadel-api.rule=Host(`${ZITADEL_DOMAIN}`)
+      - traefik.http.routers.zitadel-api.entrypoints=web
+      - traefik.http.routers.zitadel-api.priority=100
+      - traefik.http.routers.zitadel-api.service=zitadel-api
+      - traefik.http.services.zitadel-api.loadbalancer.server.port=8080
+    networks:
+      - opic-net
+
+  zitadel-login:
+    image: ${ZITADEL_LOGIN_IMAGE:-zitadel/zitadel-login}:${ZITADEL_IMAGE_TAG:-4.19.3}
+    container_name: opic-zitadel-login
+    restart: always
+    depends_on:
+      zitadel:
+        condition: service_started
+    environment:
+      ZITADEL_API_URL: http://opic-zitadel:8080
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
+      # login 会话 cookie 签名密钥（官方 v4 范式；缺失时 login 拒绝就绪）
+      ZITADEL_SESSION_COOKIE_SECRET: ${LOGIN_SESSION_COOKIE_SECRET:?LOGIN_SESSION_COOKIE_SECRET 未配置}
+      CUSTOM_REQUEST_HEADERS: Host:${ZITADEL_DOMAIN},X-Forwarded-Proto:http
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      # 首启时 ZITADEL 写入 login-client PAT（凭据引导），login 只读
+      - zitadel-bootstrap:/zitadel/bootstrap:ro
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOCKER_NETWORK:-opic-net}
+      - opic.stack=zero-trust
+      # ⚠ login 路由必须挂在本容器（Traefik 的 service 只指向 label 所在容器）
+      - traefik.http.routers.zitadel-login.rule=Host(`${ZITADEL_DOMAIN}`) && PathPrefix(`/ui/v2/login`)
+      - traefik.http.routers.zitadel-login.entrypoints=web
+      - traefik.http.routers.zitadel-login.priority=400
+      - traefik.http.routers.zitadel-login.service=zitadel-login
+      - traefik.http.services.zitadel-login.loadbalancer.server.port=3000
+      # 根路径 301 → 登录页
+      - traefik.http.routers.zitadel-root.rule=Host(`${ZITADEL_DOMAIN}`) && Path(`/`)
+      - traefik.http.routers.zitadel-root.entrypoints=web
+      - traefik.http.routers.zitadel-root.priority=400
+      - traefik.http.routers.zitadel-root.service=zitadel-root
+      - traefik.http.routers.zitadel-root.middlewares=zitadel-root-redirect
+      - traefik.http.middlewares.zitadel-root-redirect.redirectregex.regex=^(https?://[^/]+)/?$$
+      - traefik.http.middlewares.zitadel-root-redirect.redirectregex.replacement=$${1}/ui/v2/login
+      - traefik.http.services.zitadel-root.loadbalancer.server.port=3000
+    networks:
+      - opic-net

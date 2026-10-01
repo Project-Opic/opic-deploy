@@ -31,15 +31,26 @@ OPIC 智算平台的统一部署与运维仓库。采用 **单一配置文件 �
 
 ### 前置
 
-- Docker Engine 24+ 与 Compose v2
-- Temporal 全栈（PG ＋ Server ＋ UI）建议预留 **4 GB 内存**；NATS 极轻量（容器约 30 MB 镜像）
-- 前置网络（只需一次）：
+- Docker Engine 24+ 与 Compose v2；根分区可用空间 ≥ 20 GiB
+- 端口规划：默认高位端口（DEV 实测 80/443/8080/8000/4222/5432 等常被占用），见 `.env.example` 注释
+- 前置网络（脚本自动创建，只需一次）：
 
 ```bash
 docker network create opic-net
 ```
 
-### ① 部署 NATS（事件总线）
+### ① 一键安装第一步·基础设施（推荐）
+
+```bash
+bash bin/install-step1.sh                 # F0~F8 全量（含 Harbor）
+bash bin/install-step1.sh --no-registry   # 跳过 Harbor（离线拿不到安装器时）
+bash bin/verify-step1.sh                  # 八项健康门禁（可随时重跑）
+bash bin/teardown-step1.sh                # 逆序停止（数据保留）
+```
+
+细节见 [`docs/第一步-容器化部署.md`](docs/第一步-容器化部署.md) 与 [`docs/运维手册-step1.md`](docs/运维手册-step1.md)。
+
+### ② 逐栈部署 NATS（事件总线）
 
 ```bash
 cp .env.example .env
@@ -52,7 +63,7 @@ bash post-install.sh                      # 校验 JetStream 并打印接入信�
 # 已就绪：nats://127.0.0.1:4222 ｜ 监控 http://127.0.0.1:8222/varz
 ```
 
-### ② 部署 Temporal（流程引擎运行）
+### ③ 逐栈部署 Temporal（流程引擎运行）
 
 ```bash
 vim .env                                  # 再填 TEMPORAL_PG_PASSWORD
@@ -78,8 +89,15 @@ docker compose down -v                    # 连同匿名卷一并清理（数据
 
 ```
 opic-deploy/
-├── .env.example                       # 唯一配置源模板（→ 复制为 .env）
+├── .env.example                       # 唯一配置源模板（→ bin/gen-env.sh 生成 .env）
+├── bin/
+│   ├── common.sh                      # 编排公共函数
+│   ├── gen-env.sh                     # F1：生成 .env 并填充全部口令（复杂度合规）
+│   ├── install-step1.sh               # F0~F8 一键安装编排（幂等）
+│   ├── verify-step1.sh                # 八项健康门禁
+│   └── teardown-step1.sh              # 逆序停止/重置
 ├── stacks/
+│   ├── database/  redis/  traefik/  zero-trust/  casdoor/  registry/
 │   ├── nats/
 │   │   ├── docker-compose.yml         # NATS Server ＋ JetStream
 │   │   └── post-install.sh            # 校验 JetStream ＋ 输出接入信息
@@ -124,8 +142,11 @@ opic-deploy/
 | 组件 | 默认版本 | 说明 |
 |---|---|---|
 | NATS Server | `2.14-alpine` | 2026-08 时点的稳定线（官方最新 2.14.6） |
-| Temporal Server | `1.30.4` | 2026-08 时点稳定版 |
-| Temporal UI | `2.34.0` | 与 Server 1.30 配套 |
+| Temporal Server | `1.29.0` | auto-setup 镜像上游最高 1.29.x（docker-compose 仓已归档） |
+| ZITADEL | `v4.19.3` | ghcr tag 带 v 前缀；masterkey/口令复杂度见 gen-env |
+| Harbor | `v2.12.2`（DEV 实测） | 官方安装器自管；在线 v2.15.2 在受限网络不可得时用 `HARBOR_INSTALLER_DIR` 离线安装器 |
+| Temporal UI | `2.34.0` | 与 Server 1.29 配套 |
+| Temporal admin-tools | `1.30.4` | 上游无 1.29.0；CLI 对 1.29 server 向后兼容 |
 | PostgreSQL | `16-alpine` | 与 OPIC 统一 PG16 口径一致 |
 
 版本均可经 `.env` 覆盖。升级步骤：改 `.env` 的 tag → `docker compose pull` → `docker compose up -d`（Temporal 的 schema 迁移由 auto-setup 镜像在启动时自动完成）。

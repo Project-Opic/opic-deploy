@@ -1,0 +1,54 @@
+# ==============================================================================
+# Stack: redis — 缓存（数据面）
+# ==============================================================================
+# 组成:
+#   opic-redis    Redis 8（AOF 持久化 + 口令鉴权）
+#
+# 对应规则（第一步 8 项组件）: 缓存 —— 供各能力中心与 IdP 作会话/热数据缓存。
+#   归属登记: 实例属数据面（与 PG 同层，J3 面分离）；治理面（凭据发放/配额）
+#   是 O-DBS 域决策点，随第二步收敛（116 号 §三决策 3）。
+#
+# 生产形态: 生产由 Pigsty Redis 模块主机级部署；本 compose 为容器化模式与 fallback。
+#
+# 网络: opic-net（外部网络，应用面容器经 opic-redis:6379 访问）
+# 数据: ${REDIS_DATA_DIR}
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+services:
+  redis:
+    image: ${REDIS_IMAGE:-redis}:${REDIS_IMAGE_TAG:-8.10.2-alpine}
+    container_name: opic-redis
+    restart: always
+    # 口令只存在于 .env，经命令行注入；AOF 保证重启不丢缓存语义里的持久键
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD:?REDIS_PASSWORD 未配置}"
+      - "--appendonly"
+      - "yes"
+      - "--dir"
+      - "/data"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # redis-cli 经 REDISCLI_AUTH 读取口令（healthcheck 不支持 service 级环境）
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD 未配置}
+    ports:
+      # 默认只绑回环固定口（空值不会随机绑定）；纯容器网络访问可注释本段
+      - "${REDIS_PORT:-127.0.0.1:26379}:6379"
+    volumes:
+      - ${REDIS_DATA_DIR:-/opt/opic/redis/data}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    labels:
+      - opic.stack=redis
+    networks:
+      - opic-net

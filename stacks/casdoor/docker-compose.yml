@@ -1,0 +1,43 @@
+# ==============================================================================
+# Stack: casdoor — Casdoor（S5，租户侧 IdP，双 IdP 之二）
+# ==============================================================================
+# 组成:
+#   opic-casdoor    Casdoor（Beego/Go，端口 8000）
+#
+# 对应能力中心（语义在域内，本 stack 只是实现）:
+#   O-SEC 零信任安全域 — 租户侧认证（平台规则第 9 条：运维侧 ZITADEL、租户侧 Casdoor）
+#   授权链: Casbin RBAC 优先 → 拒绝则查 ZITADEL/Casdoor → 任一通过即允许
+#
+# 配置范式: 沿用 casdoor 官方 docker-compose —— driverName/dataSourceName 走
+#   环境变量注入（口令只存 .env），conf/app.conf 只放非敏感项。
+#   首启 entrypoint `--createDatabase=true` 自动建表（库 casdoor 已由
+#   stacks/database 的 init 建好，角色 casdoor 为属主）。
+#   默认管理员: admin / 123 —— **首登后必须改口令**（运维手册 §安全基线）。
+#
+# 网络: opic-net（外部网络；opic-pg 须已就绪 —— 部署顺序 database → casdoor）
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+services:
+  casdoor:
+    image: ${CASDOOR_IMAGE:-casbin/casdoor}:${CASDOOR_IMAGE_TAG:-latest}
+    container_name: opic-casdoor
+    restart: always
+    # 库已由 stacks/database 的 init 建好（--createDatabase 需 CREATEDB 权限，不采用）
+    entrypoint: /bin/sh -c './server'
+    environment:
+      driverName: postgres
+      dataSourceName: "user=casdoor password=${CASDOOR_DB_PASSWORD:?CASDOOR_DB_PASSWORD 未配置} host=opic-pg port=5432 sslmode=disable dbname=casdoor"
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ../../configs/casdoor/app.conf:/conf/app.conf:ro
+    ports:
+      - "${CASDOOR_HTTP_PORT:-8000}:8000"
+    labels:
+      - opic.stack=casdoor
+    networks:
+      - opic-net

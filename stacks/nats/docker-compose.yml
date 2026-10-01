@@ -50,5 +50,7 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+    labels:
+      - opic.stack=nats
     networks:
       - opic-net

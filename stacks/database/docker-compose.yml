@@ -1,0 +1,54 @@
+# ==============================================================================
+# Stack: database — 统一 PostgreSQL 数据基座（opicdb 统一口径）
+# ==============================================================================
+# 组成:
+#   opic-pg    PostgreSQL 16（OPIC 统一数据基座）
+#
+# 对应能力中心（语义在域内，本 stack 只是实现）:
+#   O-DBS 数据服务域 — 实例供给、建库授权、备份与高可用（**控制面**，第二步部署）
+#   本 stack 是 S4「数据基座」的**实例**（数据面），不含业务语义（115 号 §4.1）
+#
+# 建库授权（init 脚本幂等，仅首启执行）:
+#   zitadel / casdoor 两个库与角色 → 服务 stack 的 zero-trust / casdoor
+#   opicdb → 平台统一业务库（schema 前缀隔离，供后续能力中心使用）
+#
+# ⚠️ 生产形态: 生产环境数据面由 Pigsty 主机级安装（PG HA + PGBackRest），
+#    本 compose 栈为 minimal 档 fallback 与 DEV 容器化模式（116 号 §三决策 1）。
+#
+# 网络: opic-net（外部网络）
+# 数据: ${DATABASE_PG_DATA_DIR}
+# ==============================================================================
+
+networks:
+  opic-net:
+    external: true
+    name: ${DOCKER_NETWORK:-opic-net}
+
+services:
+  postgres:
+    image: ${OPIC_PG_IMAGE:-postgres}:${OPIC_PG_IMAGE_TAG:-16-alpine}
+    container_name: opic-pg
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_ADMIN_PASSWORD:?PG_ADMIN_PASSWORD 未配置}
+      TZ: ${TZ:-Asia/Shanghai}
+      # init 脚本（.sh）可读取的建库参数
+      ZITADEL_DB_PASSWORD: ${ZITADEL_DB_PASSWORD:?ZITADEL_DB_PASSWORD 未配置}
+      CASDOOR_DB_PASSWORD: ${CASDOOR_DB_PASSWORD:?CASDOOR_DB_PASSWORD 未配置}
+    ports:
+      # 默认只绑回环固定口（空值不会随机绑定）；纯容器网络访问可注释本段
+      - "${DATABASE_PG_PORT:-127.0.0.1:15432}:5432"
+    volumes:
+      - ${DATABASE_PG_DATA_DIR:-/opt/opic/database/pgdata}:/var/lib/postgresql/data
+      - ../../configs/database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      - opic.stack=database
+    networks:
+      - opic-net

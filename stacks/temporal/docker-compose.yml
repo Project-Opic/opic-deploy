@@ -55,6 +55,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    labels:
+      - opic.stack=temporal
     networks:
       - opic-net
 
@@ -63,7 +65,7 @@ services:
   # 首启由 auto-setup 自动建库表与 schema，幂等可重跑
   # ----------------------------------------------------------------------------
   temporal:
-    image: ${TEMPORAL_IMAGE:-temporalio/auto-setup}:${TEMPORAL_IMAGE_TAG:-1.30.4}
+    image: ${TEMPORAL_IMAGE:-temporalio/auto-setup}:${TEMPORAL_IMAGE_TAG:-1.29.0}
     container_name: opic-temporal
     restart: always
     depends_on:
@@ -107,7 +109,7 @@ services:
   # 启用方式: docker compose --profile tools run --rm temporal-admin-tools <args>
   # ----------------------------------------------------------------------------
   temporal-admin-tools:
-    image: ${TEMPORAL_ADMINTOOLS_IMAGE:-temporalio/admin-tools}:${TEMPORAL_ADMINTOOLS_IMAGE_TAG:-1.30.4}
+    image: ${TEMPORAL_ADMINTOOLS_IMAGE:-temporalio/admin-tools}:${TEMPORAL_ADMINTOOLS_IMAGE_TAG:-1.29.0}
     container_name: opic-temporal-admin-tools
     restart: "no"
     profiles:

@@ -8,3 +8,7 @@ pgdata/
 
 # 操作系统噪音
 .DS_Store
+
+# ── 第一步·运行时产物（不入版本库）─────────────────────────
+stacks/registry/harbor-installer/
+packages/
