@@ -31,7 +31,7 @@ services:
     entrypoint: /bin/sh -c './server'
     environment:
       driverName: postgres
-      dataSourceName: "user=casdoor password=${CASDOOR_DB_PASSWORD:?CASDOOR_DB_PASSWORD 未配置} host=opic-pg port=5432 sslmode=disable dbname=casdoor"
+      dataSourceName: "user=casdoor password=${CASDOOR_DB_PASSWORD:?CASDOOR_DB_PASSWORD 未配置} host=${PG_HOST:-opic-pg} port=5432 sslmode=disable dbname=casdoor"
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ../../configs/casdoor/app.conf:/conf/app.conf:ro
@@ -39,5 +39,11 @@ services:
       - "${CASDOOR_HTTP_PORT:-8000}:8000"
     labels:
       - opic.stack=casdoor
+      - traefik.enable=true
+      - traefik.docker.network=${DOCKER_NETWORK:-opic-net}
+      - traefik.http.routers.casdoor.rule=Host(`casdoor.${BASE_DOMAIN:?BASE_DOMAIN 未配置}`)
+      - traefik.http.routers.casdoor.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
+      - traefik.http.routers.casdoor.service=casdoor
+      - traefik.http.services.casdoor.loadbalancer.server.port=8000
     networks:
       - opic-net

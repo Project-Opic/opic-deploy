@@ -150,3 +150,100 @@ cd stacks/zero-trust && docker compose up -d && bash post-install.sh
 | 12 | nats `unknown field "max_streams"` | 该限额是账号级配置 | 从服务器配置移除 |
 | 13 | temporalio/auto-setup:1.30.4 全源 manifest unknown | 上游 docker-compose 仓已归档，无 1.30+ 镜像 | 全仓统一 1.29.0（受限网络经代理机 `docker save`/`load` 迁移；admin-tools 用 1.30.4，CLI 对 1.29 server 向后兼容） |
 | 14 | harbor prepare `KeyError: max_job_workers` | 手写精简模板缺 v2.12 必需键集 | 模板改为官方 v2.12 全键集（harbor.yml.tpl） |
+| 15 | login 反复 not ready：`SESSION_COOKIE_SECRET ... at least 32 characters` | gen-env 的 Op1- 前缀格式仅 28 位 | cookie secret 改 `openssl rand -hex 32`（≥32 字符，官方口径） |
+| 16 | temporal 建命名空间 `dial tcp [::1]:7233` | CLI 未传 --address 回落容器自身 localhost | post-install 统一注入 `--address temporal:7233` |
+| 17 | TLS 模式下 post-install healthz 404 | 探测仍打 web(http) 入口，路由已迁 websecure | 探测按 TRAEFIK_TLS 切 https/websecure（-k 自签） |
+| 18 | **rsync 多源误平铺**：`rsync -a stacks/ bin/x host:dest/` 把 stacks 内容平铺到 dest 根 | 多源 rsync 各源独立拷贝进 dest | 单目录同步始终单源调用；事故已恢复（真实目录从本地仓重灌 + 证书重生成） |
+| 19 | Harbor 容器被保留名单误清（redis/registry/registryctl 不带 harbor- 前缀） | 清理按名称前缀分类不可靠 | 按完整名单核对；恢复走安装器 compose `up -d`（配置卷完好即无损） |
+| 20 | http→https 重定向动态路由不生效 | gen-certs 幂等早退跳过了 redirect 配置段 | 重定向与证书生成解耦：重定向处理置于幂等早退之前 |
+
+---
+
+## 十、生产形态（Pigsty）运维增补
+
+> 生产形态按《OPIC 基础设施生产部署方案》（工程内嵌副本 [`docs/生产部署方案.md`](生产部署方案.md)，主件在 opic-ontology 工作区 output/118 号）执行：数据面（PG HA + Redis）由 Pigsty 主机级托管，应用面仍是本仓 compose。本章只讲**与容器化模式不同的运维动作**；通用纪律（§一~§九）继续适用。
+
+### 10.1 架构速览与端口语义
+
+```
+应用节点(node-4)                      数据节点(node-1/2/3)
+Traefik :443(TLS) ──┐                 Patroni(:8008) + etcd(:2379)
+ZITADEL/Casdoor/…   ├─► haproxy VIP ── :5433 → primary（读写）
+NATS/Temporal       │    (node-1/2/3)  :5434 → replicas（只读/负载均衡）
+Harbor :8443 ───────┘                 PGBackRest → node-3 存储 → 异地
+Pigsty INFRA(node-3): Grafana :3000 / Prometheus :9090（仅内网）
+```
+
+- **5433 = 读写（primary）**，**5434 = 只读（replicas 轮询）**——应用连接串按读写分离分别配置；VIP 漂移不影响这两端口语义。
+- 应用栈的 `.env.prod` 中库地址一律写 **VIP:5433**（不直连节点 IP，failover 才无感）。
+
+### 10.2 日常巡检（数据面）
+
+```bash
+# 集群角色与复制状态（任一数据节点）
+patronictl -c /etc/patroni/patroni.yml list
+# haproxy 后端健康（node-4 或管理机）
+curl -s http://node-1:7000/stats; csv  # 或访问 haproxy 统计页
+# 复制延迟（primary 上）
+psql -h <vip> -p 5433 -U postgres -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication;"
+# 备份有效性
+pgbackrest --stanza=pgsql info        # 最新备份须为 available，无 error
+# Redis
+redis-cli -h <redis-vip> PING && redis-cli -h <redis-vip> INFO replication | grep -E "role|master_link"
+```
+
+巡检最小集（进 crontab，每小时）：复制延迟 >10s、WAL 目录堆积、磁盘 >85%、`pgbackrest info` 有 error、 Patroni 成员非 running。
+
+### 10.3 主备切换与故障处置
+
+```bash
+# 计划内切换（低峰窗口；switchover 自带回切点记录）
+patronictl -c /etc/patroni/patroni.yml switchover opic-pg --leader node-1 --candidate node-2
+# 主库真故障：Patroni 自动 failover（etcd 仲裁），无需人工；事后
+patronictl list                        # 确认新 primary
+pgbackrest --stanza=pgsql backup       # 尽快补一次全量基备
+# 旧主回归：自动降级为 standby 并跟进新主（pg_rewind）；若失败
+patronictl reinit opic-pg <旧主>       # ⚠ 以新主数据为基准重建
+```
+
+**纪律**：切换演练每季度一次（118 号 §五）；failover 后 10 分钟内完成 `pgbackrest backup`，否则视为未收口。
+
+### 10.4 备份恢复（PGBackRest）
+
+```bash
+# 手动全量/增量
+pgbackrest --stanza=pgsql --type=full backup
+pgbackrest --stanza=pgsql --type=incr backup
+# 恢复演练（每月；恢复到临时目录验证，不覆盖生产）
+pgbackrest --stanza=pgsql --set=<最新全量名> \
+  --delta --target-action=promote --type=time "--target=2026-10-01 12:00:00+08" \
+  --pg1-path=/data/pgsql/restore-check restore
+# 恢复后校验：库数、行数抽样、ZITADEL instance 表存在
+```
+
+RPO ≤5 分钟 / RTO ≤30 分钟（118 号 §五）；演练记录归档 ops 台账，连续两月未演练按红线上报。
+
+### 10.5 证书与安全基线轮换
+
+- **通配符证书**（Traefik + Harbor 同一张）：新证书放 node-4 `/opt/opic/certs/` → `docker compose restart traefik` → Harbor 侧更新 `harbor.yml` 后 `cd harbor-installer && docker compose restart nginx`；到期前 30 天告警。
+- `api.insecure=false` 为生产硬约束——巡检项：`curl -s http://node-4:8088/api/http/routers` 必须**拒绝连接**。
+- `pg_hba.conf` 变更走变更单：改 `postgres_conf`（Pigsty 声明式）→ `patronictl reload` → `pg_hba_file_rules` 审计无 trust/宽网段。
+
+### 10.6 升级流程（生产）
+
+| 对象 | 顺序 | 回退锚点 |
+|---|---|---|
+| 应用面 compose | 改 `.env.prod` tag → `pull` → **逆序 down → 正序 up** | tag 回退（镜像不删） |
+| PG 小版本 | 先 `pgbackrest full` → switchover 到备 → 升旧主 → 再切回（滚动） | PITR |
+| Pigsty 版本 | 读 release note → 测试环境预演 → 生产按 node 逐台 playbook | 按库 dump + 旧版重装 |
+
+### 10.7 生产验收门禁（P9 核对单）
+
+- [ ] `patronictl list`：primary 唯一、全员 running、无同步失败
+- [ ] VIP:5433 读写 / :5434 只读 均通；应用栈均连 VIP（非节点 IP）
+- [ ] `pgbackrest info` 最新备份 available；月度演练在册
+- [ ] Redis 主从正常（role/master_link_status）
+- [ ] 五域名 https 证书链有效；`http://` 301；Traefik dashboard 未授权不可达
+- [ ] ZITADEL healthz/login、Casdoor、NATS `/jsz`、Temporal cluster health、Harbor `/api/v2.0/health` 全绿
+- [ ] 主备切换演练 + 恢复演练记录归档
+- [ ] `.env.prod` 与 masterkey 离线加密保管在册

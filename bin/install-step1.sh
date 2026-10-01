@@ -68,6 +68,9 @@ for d in "${DATABASE_PG_DATA_DIR:-}" "${REDIS_DATA_DIR:-}" "${HARBOR_DATA_DIR:-}
   ok "数据目录 ${d}"
 done
 
+# 入口 TLS 证书（生产档必须；DEV 也一并生成自签，无副作用）
+bash "${ROOT_DIR}/bin/gen-certs.sh"
+
 # ── F3~F7 逐栈部署（启动正序；每栈过 post-install 门禁才进下一栈）────────────
 for s in "${STACKS[@]}"; do
   echo "═══ stack: ${s} ══════════════════════════════════════════════════════"

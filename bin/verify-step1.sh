@@ -16,6 +16,13 @@ load_env "${ROOT_DIR}" 2>/dev/null || true
 set -a; source "${ROOT_DIR}/.env"; set +a
 
 WEB_PORT="${TRAEFIK_WEB_PORT:-80}"
+WSS_PORT="${TRAEFIK_WEBSECURE_PORT:-443}"
+# TLS 模式（生产档）：入口走 websecure(https, 自签证书用 -k)；DEV 默认 http
+if [[ "${TRAEFIK_TLS:-false}" == "true" ]]; then
+  SCHEME="https"; ENTRY_PORT="${WSS_PORT}"; CURLFLAGS="-kfsS"; CURLCODE="-ks -o /dev/null -w"
+else
+  SCHEME="http";  ENTRY_PORT="${WEB_PORT}";   CURLFLAGS="-fsS";  CURLCODE="-s -o /dev/null -w"
+fi
 DASH_PORT="${TRAEFIK_DASHBOARD_PORT:-8088}"
 API_PORT="${ZITADEL_API_PORT:-18082}"
 ZDOM="${ZITADEL_DOMAIN:-localhost}"
@@ -38,8 +45,8 @@ gate() {  # gate <名称> <判定命令...>
 gate_pg()      { docker exec opic-pg pg_isready -U postgres -t 1 >/dev/null; }
 gate_redis()   { docker exec opic-redis redis-cli --no-auth-warning -a "${REDIS_PASSWORD}" ping | grep -q PONG; }
 gate_traefik() { curl -fsS "http://127.0.0.1:${WEB_PORT}/ping" >/dev/null; }  # /ping 返回 OK，只验状态码
-gate_zitadel() { curl -fsS -H "Host: ${ZDOM}" "http://127.0.0.1:${WEB_PORT}/debug/healthz"; }
-gate_zlogin()  { local c; c="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${ZDOM}" "http://127.0.0.1:${WEB_PORT}/ui/v2/login")"; [[ "${c}" == "200" || "${c}" == "302" || "${c}" == "307" ]]; }
+gate_zitadel() { curl ${CURLFLAGS} -H "Host: ${ZDOM}" "${SCHEME}://127.0.0.1:${ENTRY_PORT}/debug/healthz"; }
+gate_zlogin()  { local c; c="$(curl ${CURLCODE} '%{http_code}' -H "Host: ${ZDOM}" "${SCHEME}://127.0.0.1:${ENTRY_PORT}/ui/v2/login")"; [[ "${c}" == "200" || "${c}" == "302" || "${c}" == "307" ]]; }
 gate_casdoor() { local c; c="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${CAS_PORT}/")"; [[ "${c}" == "200" || "${c}" == "302" ]]; }
 gate_nats()    { curl -fsS "http://127.0.0.1:${NATS_MON}/jsz" | grep -vq '"error"'; }
 gate_temporal(){ docker run --rm --network "${DOCKER_NETWORK:-opic-net}" \
@@ -51,7 +58,7 @@ echo "═══ 第一步·八项健康门禁 ═══════════�
 gate "① PostgreSQL   (opic-pg)"                 gate_pg
 gate "② Redis         (opic-redis)"             gate_redis
 gate "③ Traefik       (web:${WEB_PORT})"        gate_traefik
-gate "④ ZITADEL API   (经网关 healthz)"         gate_zitadel
+gate "④ ZITADEL API   (经网关 healthz, ${SCHEME})"     gate_zitadel
 gate "⑤ ZITADEL Login (经网关 /ui/v2/login)"    gate_zlogin
 gate "⑥ Casdoor       (port:${CAS_PORT})"       gate_casdoor
 gate "⑦ NATS JetStream(port:${NATS_MON})"       gate_nats

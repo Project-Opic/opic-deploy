@@ -43,10 +43,11 @@ TMP="$(mktemp)"
 cp "${EXAMPLE}" "${TMP}"
 for key in "${FILL_KEYS[@]}"; do
   if [[ "${key}" == "ZITADEL_MASTERKEY" ]]; then
-    val="$(openssl rand -hex 16)"
+    val="$(openssl rand -hex 16)"        # 恰好 32 字符（AES 密钥要求）
+  elif [[ "${key}" == "LOGIN_SESSION_COOKIE_SECRET" ]]; then
+    val="$(openssl rand -hex 32)"        # login 要求 ≥32 字符（官方口径 openssl rand -base64 32）
   else
-    # Op1- 前缀保证大写/小写/数字/符号齐备，剩余 24 位 hex 提供熵
-    val="Op1-$(openssl rand -hex 12)"
+    val="Op1-$(openssl rand -hex 12)"    # 复杂度合规：大写+小写+数字+符号
   fi
   # 只替换该 key 的「空值」行（模板中口令均为空）
   python3 - "$TMP" "$key" "$val" <<'PY'

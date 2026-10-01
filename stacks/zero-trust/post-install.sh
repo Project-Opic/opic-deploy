@@ -24,19 +24,25 @@ fi
 DOMAIN="${ZITADEL_DOMAIN:?ZITADEL_DOMAIN 未配置}"
 API_PORT="${ZITADEL_API_PORT:-18082}"
 WEB_PORT="${TRAEFIK_WEB_PORT:-80}"
+# TLS 模式（生产档）：探测走 websecure(https)；证书自签时用 -k
+if [[ "${TRAEFIK_TLS:-false}" == "true" ]]; then
+  SCHEME="https"; ENTRY_PORT="${TRAEFIK_WEBSECURE_PORT:-443}"; CURLF="-ks"
+else
+  SCHEME="http";  ENTRY_PORT="${WEB_PORT}";  CURLF="-s"
+fi
 
 echo "── 校验 ZITADEL（运维侧 IdP）────────────────────────────────────────────"
 
 # ② 经网关验证 healthz（Host 头 = ZITADEL_DOMAIN，不依赖 DNS）
 # 全新首启含建 schema（1~3 分钟），窗口给足 6 分钟
 for i in $(seq 1 90); do
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${DOMAIN}" "http://127.0.0.1:${WEB_PORT}/debug/healthz" 2>/dev/null || true)"
+  CODE="$(curl ${CURLF} -o /dev/null -w '%{http_code}' -H "Host: ${DOMAIN}" "${SCHEME}://127.0.0.1:${ENTRY_PORT}/debug/healthz" 2>/dev/null || true)"
   if [[ "${CODE}" == "200" ]]; then
-    echo "  [OK] /debug/healthz → 200（经网关 ${WEB_PORT}，Host=${DOMAIN}）"
+    echo "  [OK] /debug/healthz → 200（经网关 ${SCHEME}:${ENTRY_PORT}，Host=${DOMAIN}）"
     break
   fi
   if [[ "${i}" -eq 90 ]]; then
-    echo "  [FAIL] healthz 经网关 6 分钟内不可达（最后 code=${CODE}）。检查 opic-traefik 是否在跑、" >&2
+    echo "  [FAIL] healthz 经网关 6 分钟内不可达（最后 code=${CODE}，${SCHEME}:${ENTRY_PORT}）。检查 opic-traefik 是否在跑、" >&2
     echo "         ZITADEL_DOMAIN 与 ZITADEL_EXTERNALPORT 是否一致、docker logs opic-zitadel" >&2
     exit 1
   fi
@@ -56,10 +62,17 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
+# PAT 就绪后重启 login（其启动早于 PAT 写入时需重读凭据；healthy 则跳过）
+LH="$(docker inspect -f '{{.State.Health.Status}}' opic-zitadel-login 2>/dev/null || echo unknown)"
+if [[ "${LH}" != "healthy" ]]; then
+  docker restart opic-zitadel-login >/dev/null 2>&1 && echo "  [INFO] 已重启 login 容器（原状态 ${LH}，重读 PAT）"
+  sleep 10
+fi
+
 # ④ login 界面（PAT 就绪后再探，给首启留 90 秒）
 LOGIN_OK=""
 for i in $(seq 1 45); do
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${DOMAIN}" "http://127.0.0.1:${WEB_PORT}/ui/v2/login" 2>/dev/null || true)"
+  CODE="$(curl ${CURLF} -o /dev/null -w '%{http_code}' -H "Host: ${DOMAIN}" "${SCHEME}://127.0.0.1:${ENTRY_PORT}/ui/v2/login" 2>/dev/null || true)"
   if [[ "${CODE}" == "200" || "${CODE}" == "307" || "${CODE}" == "302" ]]; then
     echo "  [OK] /ui/v2/login → ${CODE}（Login 服务经网关可达）"
     LOGIN_OK=1
@@ -72,7 +85,7 @@ if [[ -z "${LOGIN_OK}" ]]; then
   exit 1
 fi
 
-LOGIN_ADDR="http://${DOMAIN}:${ZITADEL_EXTERNALPORT:-80}"
+LOGIN_ADDR="${SCHEME}://${DOMAIN}:${ZITADEL_EXTERNALPORT:-80}"
 echo
 echo "── 接入信息 ────────────────────────────────────────────────────────────"
 echo "  登录入口   : ${LOGIN_ADDR}"

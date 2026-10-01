@@ -52,5 +52,12 @@ services:
       start_period: 10s
     labels:
       - opic.stack=nats
+      - traefik.enable=true
+      - traefik.docker.network=${DOCKER_NETWORK:-opic-net}
+      # 仅 monitor 端点入域（客户端 4222 走 IP:端口；内网解析）
+      - traefik.http.routers.nats-monitor.rule=Host(`nats.${BASE_DOMAIN}`)
+      - traefik.http.routers.nats-monitor.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
+      - traefik.http.routers.nats-monitor.service=nats-monitor
+      - traefik.http.services.nats-monitor.loadbalancer.server.port=8222
     networks:
       - opic-net

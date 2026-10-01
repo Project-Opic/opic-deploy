@@ -35,7 +35,11 @@ services:
       - --providers.docker.constraints=LabelRegex(`opic.stack`,`.+`)
       # 入口点：web（HTTP）与 websecure（HTTPS，证书后补）
       - --entrypoints.web.address=:80
+      # websecure 恒启 TLS（证书由 certs/ 提供缺失时 F2 的 gen-certs.sh 生成自签）
       - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      # 文件 provider：证书动态配置（dynamic/tls.yml）
+      - --providers.file.directory=/etc/traefik/dynamic
       # DEV：dashboard 开放（api.insecure 供排障；生产必须关闭并走受控路由）
       - --api.dashboard=true
       - --api.insecure=true
@@ -51,6 +55,9 @@ services:
       - "${TRAEFIK_DASHBOARD_PORT:-8088}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 证书与动态配置（gen-certs.sh 生成自签 CA + 通配符；企业证书直接替换同名文件）
+      - ../../certs:/etc/traefik/certs:ro
+      - ../../configs/traefik/dynamic:/etc/traefik/dynamic:ro
     security_opt:
       - no-new-privileges:true
     healthcheck:

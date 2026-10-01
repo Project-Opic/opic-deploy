@@ -101,6 +101,14 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${TEMPORAL_UI_PORT:-8233}:8080"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOCKER_NETWORK:-opic-net}
+      - opic.stack=temporal
+      - traefik.http.routers.temporal-ui.rule=Host(`temporal.${BASE_DOMAIN}`)
+      - traefik.http.routers.temporal-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
+      - traefik.http.routers.temporal-ui.service=temporal-ui
+      - traefik.http.services.temporal-ui.loadbalancer.server.port=8080
     networks:
       - opic-net
 

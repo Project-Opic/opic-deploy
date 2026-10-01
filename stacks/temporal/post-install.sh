@@ -24,16 +24,18 @@ UI_PORT="${TEMPORAL_UI_PORT:-8233}"
 GRPC_PORT="${TEMPORAL_GRPC_PORT:-7233}"
 TOOLS_IMAGE="${TEMPORAL_ADMINTOOLS_IMAGE:-temporalio/admin-tools}:${TEMPORAL_ADMINTOOLS_IMAGE_TAG:-1.30.4}"
 
+# 统一注入 server 地址（容器网 DNS 名），避免 CLI 回落 localhost:7233
 temporal_cli() {
   docker run --rm --network "${NET}" --entrypoint temporal "${TOOLS_IMAGE}" "$@"
 }
+ADDR="--address temporal:${GRPC_PORT}"
 
 echo "── 校验 Temporal Server ────────────────────────────────────────────────"
 
 # 等待 frontend 就绪（首启要建 schema，通常 30~60 秒）
 HEALTH=""
 for i in $(seq 1 45); do
-  HEALTH="$(temporal_cli operator cluster health --address temporal:7233 2>/dev/null | tr -d '\r' || true)"
+  HEALTH="$(temporal_cli operator cluster health ${ADDR} 2>/dev/null | tr -d '\r' || true)"
   if printf '%s' "${HEALTH}" | grep -q "SERVING"; then
     echo "  [OK] cluster health = SERVING"
     break
@@ -47,10 +49,10 @@ done
 
 # 业务命名空间（幂等：已存在则跳过）
 echo "── 业务命名空间 ────────────────────────────────────────────────────────"
-if temporal_cli operator namespace describe --namespace "${NS}" >/dev/null 2>&1; then
+if temporal_cli operator namespace describe ${ADDR} --namespace "${NS}" >/dev/null 2>&1; then
   echo "  [SKIP] 命名空间 ${NS} 已存在"
 else
-  temporal_cli operator namespace create --namespace "${NS}" --retention "${RETENTION}d"
+  temporal_cli operator namespace create ${ADDR} --namespace "${NS}" --retention "${RETENTION}d"
   echo "  [OK] 已创建命名空间 ${NS}（retention ${RETENTION} 天）"
 fi
 

@@ -56,7 +56,7 @@ services:
     # 数据库不在本栈（stacks/database 先行），依赖顺序由 install 脚本保证
     environment:
       # 数据库（统一 PG；USER 为业务连接，ADMIN 为首启建 schema 用超级用户）
-      ZITADEL_DATABASE_POSTGRES_HOST: opic-pg
+      ZITADEL_DATABASE_POSTGRES_HOST: ${PG_HOST:-opic-pg}
       ZITADEL_DATABASE_POSTGRES_PORT: "5432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
@@ -68,7 +68,7 @@ services:
       # 对外地址：必须与浏览器地址栏一致（OIDC issuer 由它构成）
       ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN:?ZITADEL_DOMAIN 未配置}
       ZITADEL_EXTERNALPORT: ${ZITADEL_EXTERNALPORT:-80}
-      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALSECURE: ${ZITADEL_EXTERNALSECURE:-false}
       # 首个组织 admin（zitadel-admin@zitadel.localhost）的口令
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD:?ZITADEL_ADMIN_PASSWORD 未配置}
       # ── login-client 机器用户（Login UI 的 API 凭据来源，官方 v4 范式）──
@@ -96,7 +96,7 @@ services:
       - traefik.docker.network=${DOCKER_NETWORK:-opic-net}
       # ── 主路由（catch-all）：除 login 相关路径外的全部流量 → ZITADEL API ──
       - traefik.http.routers.zitadel-api.rule=Host(`${ZITADEL_DOMAIN}`)
-      - traefik.http.routers.zitadel-api.entrypoints=web
+      - traefik.http.routers.zitadel-api.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
       - traefik.http.routers.zitadel-api.priority=100
       - traefik.http.routers.zitadel-api.service=zitadel-api
       - traefik.http.services.zitadel-api.loadbalancer.server.port=8080
@@ -128,13 +128,13 @@ services:
       - opic.stack=zero-trust
       # ⚠ login 路由必须挂在本容器（Traefik 的 service 只指向 label 所在容器）
       - traefik.http.routers.zitadel-login.rule=Host(`${ZITADEL_DOMAIN}`) && PathPrefix(`/ui/v2/login`)
-      - traefik.http.routers.zitadel-login.entrypoints=web
+      - traefik.http.routers.zitadel-login.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
       - traefik.http.routers.zitadel-login.priority=400
       - traefik.http.routers.zitadel-login.service=zitadel-login
       - traefik.http.services.zitadel-login.loadbalancer.server.port=3000
       # 根路径 301 → 登录页
       - traefik.http.routers.zitadel-root.rule=Host(`${ZITADEL_DOMAIN}`) && Path(`/`)
-      - traefik.http.routers.zitadel-root.entrypoints=web
+      - traefik.http.routers.zitadel-root.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
       - traefik.http.routers.zitadel-root.priority=400
       - traefik.http.routers.zitadel-root.service=zitadel-root
       - traefik.http.routers.zitadel-root.middlewares=zitadel-root-redirect
