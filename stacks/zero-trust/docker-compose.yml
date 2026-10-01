@@ -57,7 +57,7 @@ services:
     environment:
       # 数据库（统一 PG；USER 为业务连接，ADMIN 为首启建 schema 用超级用户）
       ZITADEL_DATABASE_POSTGRES_HOST: ${PG_HOST:-opic-pg}
-      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_PORT: ${PG_PORT:-5432}
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DB_PASSWORD:?ZITADEL_DB_PASSWORD 未配置}
@@ -141,5 +141,7 @@ services:
       - traefik.http.middlewares.zitadel-root-redirect.redirectregex.regex=^(https?://[^/]+)/?$$
       - traefik.http.middlewares.zitadel-root-redirect.redirectregex.replacement=$${1}/ui/v2/login
       - traefik.http.services.zitadel-root.loadbalancer.server.port=3000
+    extra_hosts:
+      - "host.docker.internal:${HOST_GW_IP:-host-gateway}"
     networks:
       - opic-net

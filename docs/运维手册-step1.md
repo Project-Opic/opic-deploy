@@ -163,6 +163,10 @@ cd stacks/zero-trust && docker compose up -d && bash post-install.sh
 
 > 生产形态按《OPIC 基础设施生产部署方案》（工程内嵌副本 [`docs/生产部署方案.md`](生产部署方案.md)，主件在 opic-ontology 工作区 output/118 号）执行：数据面（PG HA + Redis）由 Pigsty 主机级托管，应用面仍是本仓 compose。本章只讲**与容器化模式不同的运维动作**；通用纪律（§一~§九）继续适用。
 
+### 10.0 本机实施状态（192.168.3.200，2026-10-02）
+
+Pigsty v4.5.0 单机已安装并承接全部 PG 数据面：Patroni 集群 `opic-pg`（PG16）+ etcd 12379/12380 + haproxy 5433(rw)/5434(ro)；Grafana :3000；VictoriaMetrics :8428（metrics 后端）；vector 日志。**应用面经 `host.docker.internal:5433`（容器网关 172.20.0.1）连接**。haproxy 后端已改直连 PG 5432（pgbouncer 6432 弃用——其用户认证与现网口令体系不符；**重跑 pigsty playbook 会重渲染 haproxy cfg，需重执行**：`sed -i "s/:6432 /:5432 /g" /etc/haproxy/conf.d/opic-pg-*.cfg && systemctl reload haproxy`）。Redis 仍为容器（opic-redis），Pigsty Redis 模块待后续。备份脚本数据源自适应（容器 opic-pg → 宿主 5433）。
+
 ### 10.1 架构速览与端口语义
 
 ```

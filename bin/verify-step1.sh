@@ -42,7 +42,14 @@ gate() {  # gate <名称> <判定命令...>
   fi
 }
 
-gate_pg()      { docker exec opic-pg pg_isready -U postgres -t 1 >/dev/null; }
+gate_pg() {
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^opic-pg$'; then
+    docker exec opic-pg pg_isready -U postgres -t 1 >/dev/null
+  else
+    pg_isready -h 127.0.0.1 -p ${PG_PORT:-5433} -U postgres -t 1 >/dev/null 2>&1 || \
+    PGPASSWORD="${PG_ADMIN_PASSWORD}" pg_isready -h 127.0.0.1 -p ${PG_PORT:-5433} -U postgres -t 1 >/dev/null 2>&1
+  fi
+}
 gate_redis()   { docker exec opic-redis redis-cli --no-auth-warning -a "${REDIS_PASSWORD}" ping | grep -q PONG; }
 gate_traefik() { curl -fsS "http://127.0.0.1:${WEB_PORT}/ping" >/dev/null; }  # /ping 返回 OK，只验状态码
 gate_zitadel() { curl ${CURLFLAGS} -H "Host: ${ZDOM}" "${SCHEME}://127.0.0.1:${ENTRY_PORT}/debug/healthz"; }

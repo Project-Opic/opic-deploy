@@ -22,9 +22,15 @@ TODAY_DOW="$(date +%u)"   # 7=周日
 mkdir -p "${BACKUP_DIR}"
 FAILED=0
 
-# 1) PostgreSQL 全库逻辑备份
-if docker ps --format '{{.Names}}' | grep -q '^opic-pg$'; then
-  if docker exec opic-pg pg_dumpall -U postgres 2>/dev/null \
+# 1) PostgreSQL 全库逻辑备份（数据源自适应：容器 opic-pg → 宿主 Pigsty haproxy 5433）
+pg_dump_pipe=""
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^opic-pg$'; then
+  pg_dump_pipe="docker exec opic-pg pg_dumpall -U postgres"
+elif command -v pg_dumpall >/dev/null 2>&1 || [ -x /usr/pgsql-16/bin/pg_dumpall ]; then
+  pg_dump_pipe="env PGPASSWORD=\"${PG_ADMIN_PASSWORD}\" $(command -v pg_dumpall || echo /usr/pgsql-16/bin/pg_dumpall) -h 127.0.0.1 -p ${PG_PORT:-5433} -U postgres"
+fi
+if [[ -n "${pg_dump_pipe}" ]]; then
+  if eval "${pg_dump_pipe}" 2>/dev/null \
       | gzip > "${BACKUP_DIR}/pg-${TODAY}.sql.gz.tmp" \
       && mv "${BACKUP_DIR}/pg-${TODAY}.sql.gz.tmp" "${BACKUP_DIR}/pg-${TODAY}.sql.gz"; then
     SIZE="$(du -h "${BACKUP_DIR}/pg-${TODAY}.sql.gz" | cut -f1)"
