@@ -43,10 +43,10 @@ done
 # 校验 opicdb 的 23 个中心 schema（用户规则 2026-10-01）
 SCHEMAS="$(docker exec opic-pg psql -U postgres -d opicdb -tAc \
   "SELECT count(*) FROM information_schema.schemata WHERE schema_owner='opicdb_owner'" 2>/dev/null || echo 0)"
-if [[ "${SCHEMAS}" -eq 23 ]]; then
-  echo "  [OK] opicdb 含 23 个中心 schema（opicdb_owner 属主）"
+if [[ "${SCHEMAS}" -eq 24 ]]; then
+  echo "  [OK] opicdb 含 23 个中心 schema + otechbase 示例（opicdb_owner 属主）"
 else
-  echo "  [FAIL] opicdb 中心 schema 数=${SCHEMAS}（应为 23，init 脚本未生效？）" >&2
+  echo "  [FAIL] opicdb schema 数=${SCHEMAS}（应为 24，init 脚本未生效？）" >&2
   exit 1
 fi
 

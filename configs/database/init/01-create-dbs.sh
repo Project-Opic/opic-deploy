@@ -36,9 +36,11 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d opicdb <<-EOSQL
   CREATE SCHEMA odat AUTHORIZATION opicdb_owner;  CREATE SCHEMA omdl AUTHORIZATION opicdb_owner;
   CREATE SCHEMA oknb AUTHORIZATION opicdb_owner;  CREATE SCHEMA omon AUTHORIZATION opicdb_owner;
   CREATE SCHEMA ocmp AUTHORIZATION opicdb_owner;
+  -- 脚手架示例 schema（opic-techbase 复制基线；各中心仓复制后改用自身域码 schema）
+  CREATE SCHEMA otechbase AUTHORIZATION opicdb_owner;
   GRANT USAGE ON SCHEMA public TO opicdb_owner;
 EOSQL
 
-echo "[init] opicdb 就绪：23 个中心 schema（opicdb_owner 属主）"
+echo "[init] opicdb 就绪：23 个中心 schema + otechbase 示例（opicdb_owner 属主）"
 
 echo "[init] 数据库就绪: zitadel / casdoor / opicdb"
