@@ -38,27 +38,27 @@ services:
   # ----------------------------------------------------------------------------
   # 持久化 + 可见性存储
   # ----------------------------------------------------------------------------
-  temporal-postgresql:
-    image: ${TEMPORAL_PG_IMAGE:-postgres}:${TEMPORAL_PG_IMAGE_TAG:-16-alpine}
-    container_name: opic-temporal-pg
-    restart: always
-    environment:
-      POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
-      POSTGRES_PASSWORD: ${TEMPORAL_PG_PASSWORD:?TEMPORAL_PG_PASSWORD 未配置}
-      POSTGRES_DB: ${TEMPORAL_PG_DB:-temporal}
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      - ${TEMPORAL_PG_DATA_DIR:-/opt/opic/temporal/pgdata}:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${TEMPORAL_PG_USER:-temporal} -d ${TEMPORAL_PG_DB:-temporal}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    labels:
-      - opic.stack=temporal
-    networks:
-      - opic-net
+  #  temporal-postgresql:
+  #    image: ${TEMPORAL_PG_IMAGE:-postgres}:${TEMPORAL_PG_IMAGE_TAG:-16-alpine}
+  #    container_name: opic-temporal-pg
+  #    restart: always
+  #    environment:
+  #      POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
+  #      POSTGRES_PASSWORD: ${TEMPORAL_PG_PASSWORD:?TEMPORAL_PG_PASSWORD 未配置}
+  #      POSTGRES_DB: ${TEMPORAL_PG_DB:-temporal}
+  #      TZ: ${TZ:-Asia/Shanghai}
+  #    volumes:
+  #      - ${TEMPORAL_PG_DATA_DIR:-/opt/opic/temporal/pgdata}:/var/lib/postgresql/data
+  #    healthcheck:
+  #      test: ["CMD-SHELL", "pg_isready -U ${TEMPORAL_PG_USER:-temporal} -d ${TEMPORAL_PG_DB:-temporal}"]
+  #      interval: 10s
+  #      timeout: 5s
+  #      retries: 10
+  #      start_period: 20s
+  #    labels:
+  #      - opic.stack=temporal
+  #    networks:
+  #      - opic-net
 
   # ----------------------------------------------------------------------------
   # Temporal Server（all-in-one：frontend / history / matching / worker）
@@ -68,13 +68,11 @@ services:
     image: ${TEMPORAL_IMAGE:-temporalio/auto-setup}:${TEMPORAL_IMAGE_TAG:-1.29.0}
     container_name: opic-temporal
     restart: always
-    depends_on:
-      temporal-postgresql:
-        condition: service_healthy
     environment:
       DB: postgres12
-      DB_PORT: "5432"
-      POSTGRES_SEEDS: temporal-postgresql
+      DB_PORT: "5433"
+      POSTGRES_SEEDS: host.docker.internal  # Pigsty haproxy rw(2026-10-03 由独立 pg 容器迁移纳管)
+      SKIP_DB_CREATE: "true"  # 库/schema 已迁移至 Pigsty(restore),跳过建库(schema 版本校验仍幂等执行)
       POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
       POSTGRES_PWD: ${TEMPORAL_PG_PASSWORD:?TEMPORAL_PG_PASSWORD 未配置}
       DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/development-sql.yaml
