@@ -1,0 +1,21 @@
+http:
+  routers:
+    techbase-api:
+      rule: "PathPrefix(`/api`) || PathPrefix(`/health`) || Path(`/metrics`)"
+      entryPoints: [web]
+      priority: 100
+      service: techbase-app
+    frontend:
+      rule: "PathPrefix(`/`)"
+      entryPoints: [web]
+      priority: 1
+      service: frontend
+  services:
+    techbase-app:
+      loadBalancer:
+        servers:
+          - url: "http://techbase:9680"
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:80"

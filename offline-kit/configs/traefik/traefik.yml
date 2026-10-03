@@ -1,0 +1,12 @@
+# OPIC DEMO 网关（Traefik,与生产同构：/api /health /metrics 分流到应用,其余到前端）
+entryPoints:
+  web:
+    address: ":80"
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: false
+api:
+  dashboard: false
+log:
+  level: INFO

@@ -1,0 +1,142 @@
+# ==============================================================================
+# OPIC 离线安装介质 · DEMO 栈编排（core 档：本地登录，无域名依赖）
+# ==============================================================================
+# 覆盖组件：PostgreSQL(多库初始化) / Redis / NATS(JetStream) / Temporal(+UI) /
+#           opic-techbase(后端+前端)
+# 端口规划（宿主直通，全部可在 .env 调整）：
+#   前端 28081 | PG 35432 | Redis 36379 | NATS 34222 | Temporal 37233 | Temporal UI 38088
+# SSO（Casdoor/ZITADEL）见 docker-compose.demo-sso.yml（--with-sso 拉起）。
+# ==============================================================================
+
+name: opic-demo
+
+services:
+  # ── Traefik 网关（与生产同构：/api /health /metrics → 应用,其余 → 前端静态） ──
+  traefik:
+    image: ${TRAEFIK_IMAGE:-traefik}:${TRAEFIK_IMAGE_TAG:-v3.7.10}
+    container_name: opic-demo-traefik
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-28081}:80"
+    volumes:
+      - ./configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./configs/traefik/dynamic:/etc/traefik/dynamic:ro
+
+  # ── PostgreSQL：单实例多库（opicdb/casdoor/zitadel/temporal），生产请替换为 Pigsty ──
+  pg:
+    image: ${PG_IMAGE:-postgres}:${PG_IMAGE_TAG:-16-alpine}
+    container_name: opic-demo-pg
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${PG_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "${PG_PORT:-35432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./runtime/initdb:/docker-entrypoint-initdb.d:ro   # install.sh 生成(含随机口令)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ── Redis ──
+  redis:
+    image: ${REDIS_IMAGE:-redis}:${REDIS_IMAGE_TAG:-8.10.2-alpine}
+    container_name: opic-demo-redis
+    restart: always
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "${REDIS_PORT:-36379}:6379"
+
+  # ── NATS（JetStream 文件存储;产品形态无外部数据库） ──
+  nats:
+    image: ${NATS_IMAGE:-nats}:${NATS_IMAGE_TAG:-2.14-alpine}
+    container_name: opic-demo-nats
+    restart: always
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-34222}:4222"
+    volumes:
+      - natsdata:/data
+
+  # ── Temporal（auto-setup 首启自动建 schema,幂等） ──
+  temporal:
+    image: ${TEMPORAL_IMAGE:-temporalio/auto-setup}:${TEMPORAL_IMAGE_TAG:-1.29.0}
+    container_name: opic-demo-temporal
+    restart: always
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: pg
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_PASSWORD}
+      POSTGRES_DB: temporal
+      TZ: Asia/Shanghai
+    ports:
+      - "${TEMPORAL_PORT:-37233}:7233"
+
+  temporal-ui:
+    image: ${TEMPORAL_UI_IMAGE:-temporalio/ui}:${TEMPORAL_UI_IMAGE_TAG:-2.34.0}
+    container_name: opic-demo-temporal-ui
+    restart: always
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_UI_ENABLED: "true"
+    ports:
+      - "${TEMPORAL_UI_PORT:-38088}:80"
+
+  # ── opic-techbase 后端（本地登录模式;SSO 经 overlay 开启） ──
+  techbase:
+    image: ${TECHBASE_IMAGE:-opic/techbase}:${TECHBASE_IMAGE_TAG:-latest}
+    container_name: opic-demo-techbase
+    restart: always
+    depends_on:
+      pg:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      temporal:
+        condition: service_started
+    environment:
+      TZ: Asia/Shanghai
+      APP_PORT: "9680"
+      CENTER_CODE: techbase
+      # 数据面
+      DB_HOST: pg
+      DB_PORT: "5432"
+      DB_USER: opic
+      DB_PASSWORD: ${OPIC_DB_PASSWORD}
+      DB_NAME: opicdb
+      DB_SCHEMA: otechbase
+      DB_SSLMODE: disable
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # 事件 / 工作流（隔离三件套按 CENTER_CODE 推导）
+      EVENTBUS_DRIVER: nats
+      EVENTBUS_URL: nats://nats:4222
+      WORKFLOW_DRIVER: temporal
+      WORKFLOW_ADDRESS: temporal:7233
+      WORKFLOW_NAMESPACE: opic
+      # 认证（DEMO 默认本地登录;SSO 见 overlay 与 README「开启 SSO」）
+      AUTH_MODE: local
+      USER_AUTH_MODE: local
+      METRICS_ENABLED: "true"
+
+  # ── opic-techbase 前端（nginx 反代 /api → techbase:9680） ──
+  frontend:
+    image: ${TECHBASE_FRONTEND_IMAGE:-opic/techbase-frontend}:${TECHBASE_IMAGE_TAG:-latest}
+    container_name: opic-demo-frontend
+    restart: always
+    depends_on: [techbase]
+
+volumes:
+  pgdata:
+  natsdata:

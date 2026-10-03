@@ -1,0 +1,87 @@
+# ==============================================================================
+# SSO overlay —— Casdoor（工作台）+ ZITADEL（管理控制台）
+# 用法: install.sh --with-sso   或
+#   docker compose -f docker-compose.demo.yml -f docker-compose.demo-sso.yml up -d
+# 对接生产级 SSO（login 组件/应用注册/回调域名）请参考 opic-deploy stacks/zero-trust 与
+# techbase「编译与部署指南」。
+# ==============================================================================
+
+services:
+  # Casdoor（用户工作台 SSO;库 casdoor 由 initdb 建立）
+  casdoor:
+    image: ${CASDOOR_IMAGE:-casbin/casdoor}:${CASDOOR_IMAGE_TAG:-latest}
+    container_name: opic-demo-casdoor
+    restart: always
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      RunningInDocker: "true"
+      driverName: postgres
+      dataSourceName: "user=casdoor password=${CASDOOR_DB_PASSWORD} host=pg port=5432 sslmode=disable dbname=casdoor"
+      httpport: "8000"
+      runmode: prod
+    volumes:
+      - ./configs/casdoor-app.conf.template:/conf/app.conf:ro
+    ports:
+      - "${CASDOOR_PORT:-38001}:8000"
+
+  # ZITADEL（管理控制台 SSO;start-from-init,首建 zitadel-admin@zitadel.localhost）
+  init-perms:
+    image: ${PG_IMAGE:-postgres}:${PG_IMAGE_TAG:-16-alpine}
+    depends_on:
+      pg:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "sleep 2"]
+    restart: "no"
+
+  zitadel:
+    image: ${ZITADEL_IMAGE:-ghcr.io/zitadel/zitadel}:${ZITADEL_IMAGE_TAG:-v4.19.3}
+    container_name: opic-demo-zitadel
+    restart: always
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode disabled
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: pg
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${PG_ROOT_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      # 对外地址 = 浏览器访问地址(DEMO 直通端口;正式部署改为域名+443+EXTERNALSECURE=true)
+      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_HOST_IP}
+      ZITADEL_EXTERNALPORT: ${ZITADEL_PORT:-38080}
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD}
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+    ports:
+      - "${ZITADEL_PORT:-38080}:8080"
+    volumes:
+      - ztlbootstrap:/zitadel/bootstrap
+
+  # ZITADEL Login UI（v4 独立登录界面）
+  zitadel-login:
+    image: ${ZITADEL_LOGIN_IMAGE:-ghcr.io/zitadel/zitadel-login}:${ZITADEL_IMAGE_TAG:-v4.19.3}
+    container_name: opic-demo-zitadel-login
+    restart: always
+    depends_on: [zitadel]
+    environment:
+      ZITADEL_API_URL: http://${ZITADEL_HOST_IP}:${ZITADEL_PORT:-38080}
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+    ports:
+      - "${ZITADEL_LOGIN_PORT:-38081}:3000"
+    volumes:
+      - ztlbootstrap:/zitadel/bootstrap:ro
+
+volumes:
+  ztlbootstrap:
