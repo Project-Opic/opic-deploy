@@ -1,0 +1,30 @@
+groups:
+  - name: techbase-app
+    interval: 30s
+    rules:
+      # 应用实例失联(抓取失败)
+      - alert: TechbaseAppDown
+        expr: up{job="techbase"} == 0
+        for: 1m
+        labels: { severity: critical, center: techbase }
+        annotations:
+          summary: "技术底座应用失联"
+          description: "vmetrics 抓取 techbase /metrics 失败超过 1 分钟"
+      # 5xx 错误率(5 分钟窗口 >5%)
+      - alert: TechbaseHighErrorRate
+        expr: >
+          sum(rate(opic_techbase_http_requests_total{status=~"5.."}[5m]))
+          / clamp_min(sum(rate(opic_techbase_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels: { severity: warning, center: techbase }
+        annotations:
+          summary: "技术底座 5xx 错误率过高"
+          description: "近 5 分钟 5xx 占比超过 5%"
+      # DB 连接池耗尽预警(在用连接 >= 上限 80%)
+      - alert: TechbaseDBPoolSaturated
+        expr: opic_techbase_db_pool_in_use_connections >= 16
+        for: 5m
+        labels: { severity: warning, center: techbase }
+        annotations:
+          summary: "技术底座 DB 连接池接近上限"
+          description: "InUse 连接数 >= 16(池上限 20 的 80%)"

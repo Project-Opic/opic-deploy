@@ -1,0 +1,7 @@
+- targets:
+    - techbase.opic-ai.ccoe.tech:443
+  labels:
+    cls: opic
+    ins: techbase-app
+    job: techbase
+    center: techbase
