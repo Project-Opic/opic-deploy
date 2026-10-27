@@ -1,177 +1,219 @@
-# opic-deploy — OPIC 平台部署工程
+# opic-deploy
 
-OPIC 智算平台的统一部署与运维仓库。采用 **单一配置文件 ＋ 分层 stack ＋ 离线介质** 的组织方式：一个 `.env` 配置源，每个组件一个 `stacks/<name>/`，堆栈之间通过外部 Docker 网络 `opic-net` 互联。
+> 简体中文: [README-zh.md](README-zh.md)
 
-**当前包含的 stack**
+[![License](https://img.shields.io/badge/License-MulanPSL--2.0-2E7D32)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](stacks/nats/docker-compose.yml)
+[![NATS](https://img.shields.io/badge/NATS-2.14-27AAE1)](stacks/nats)
+[![Temporal](https://img.shields.io/badge/Temporal-1.29-6E56CF)](stacks/temporal)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](stacks/database)
 
-| Stack | 组件 | 在 OPIC 本体体系中的位置 |
+[Documentation](#documentation) | [Architecture](#architecture) | [Usage](#usage) | [Deployment](#deployment) | [Roadmap](#roadmap) | [License](#license)
+
+**opic-deploy is the unified deployment and operations repository for the OPIC open intelligent compute platform**: one `.env` configuration source, one `stacks/<name>/` per component, and one offline media kit. Stacks interconnect through the external Docker network `opic-net`, and every component takes its parameters from the single configuration source — no second source of truth.
+
+The repository answers a recurring delivery question: how do you bring up a distributed platform on-site without configuration drift? Ports, passwords, and data directories are converged into one file; semantic authority (event catalogs, subscription relations, orchestration-structure validity) stays in the capability centers, while this repository only ships the verified default combinations of the layer-3 executors.
+
+This repository contains the step-1 infrastructure installer with health gates, per-component Docker Compose stacks, pinned component versions, an observability bundle, an offline kit, and the deployment-order specification.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [第一步·基础设施安装](docs/第一步-基础设施安装.md) | Step-1 infrastructure installation walkthrough |
+| [第一步·容器化部署](docs/第一步-容器化部署.md) | Containerized deployment of step 1 |
+| [运维手册 step1](docs/运维手册-step1.md) | Operations manual for step 1 |
+| [生产部署方案](docs/生产部署方案.md) | Production deployment plan |
+| [O-SYS 集成说明](docs/O-SYS-集成说明.md) | Semantic correspondence with capability centers and the four hard boundaries |
+| [部署顺序](docs/部署顺序.md) | Deployment order, the J1~J7 ordering criteria, and per-item rationale — the single source of truth |
+| [techbase-ops](docs/techbase-ops.md) | Techbase operations notes |
+
+## Architecture
+
+opic-deploy is organized as **one configuration source + layered stacks + offline media**:
+
+- **`.env`** — the single configuration source. `bin/gen-env.sh` generates it with complexity-compliant passwords; every compose file and script reads from it and nowhere else.
+- **`stacks/<name>/`** — one stack per component, each with a `docker-compose.yml` and an optional `post-install.sh` that verifies the component and prints its access information.
+- **`bin/`** — the orchestration layer: `install-step1.sh` (F0~F8, idempotent), `verify-step1.sh` (eight health gates, re-runnable at any time), `teardown-step1.sh` (reverse-order stop, data retained), plus `gen-certs.sh` and `backup-prod.sh` for production operations.
+- **`observability/`** — the techbase observability bundle: Grafana dashboard, vmalert rules, file-based service discovery, and an installer.
+- **`offline-kit/`** — the offline media kit: `pack.sh` builds it, `install.sh` consumes it, with demo compose files for air-gapped sites.
+
+Deployment paths:
+
+- Step 1 (recommended): `bash bin/install-step1.sh` brings up the infrastructure in order — host prerequisites → data and identity foundation → layer-3 middleware → observability.
+- Per stack: `cp .env.example .env && vim .env`, then `cd stacks/<name> && docker compose up -d && bash post-install.sh`.
+- Start in order, stop in reverse order — the full order, the seven J1~J7 criteria, and the per-item rationale live in [`docs/部署顺序.md`](docs/部署顺序.md).
+
+Semantics: the components here are **executors only**. Event catalogs, subscription relations, and orchestration-structure validity remain the semantic authority of the capability centers (see [`docs/O-SYS-集成说明.md`](docs/O-SYS-集成说明.md)).
+
+### Core Capabilities
+
+| Capability | What it does |
+|---|---|
+| **Event bus stack** | NATS Server + JetStream with enforced user/password authentication, verified by `post-install.sh` (client `4222`, monitoring `8222`) |
+| **Workflow runtime stack** | Temporal Server + PostgreSQL 16 + Web UI + admin-tools, with automatic schema setup and the business namespace created on first start (gRPC `7233`, UI `8233`) |
+| **Infrastructure stacks** | Database, Redis, Traefik, zero-trust (ZITADEL), Casdoor, and registry (Harbor) stacks sharing the same configuration discipline |
+| **Step-1 installer** | F0~F8 one-command orchestration (idempotent), with `--no-registry` for sites without the offline installer |
+| **Health gates** | Eight verification gates re-runnable at any time, plus reverse-order teardown that retains data |
+| **Offline kit** | Media packing and installation for air-gapped delivery, including demo SSO compose files |
+| **Observability bundle** | Grafana dashboard, vmalert rules, and file-sd targets for the techbase metrics surface |
+
+## How opic-deploy Relates to Other Tools
+
+opic-deploy is an **execution-layer repository**, not a semantic authority. It ships verified default combinations; it does not define events, subscriptions, or orchestration structures.
+
+| Layer | Tools | Relationship |
 |---|---|---|
-| [`nats`](stacks/nats/) | NATS Server ＋ JetStream | `O-SYS` **事件总线**的第 3 层可替换实现 |
-| [`temporal`](stacks/temporal/) | Temporal Server ＋ PostgreSQL 16 ＋ Web UI | `O-SYS` **流程引擎运行 / 工作流编排运行时**的第 3 层可替换实现 |
+| Semantic authority | Capability centers (O-SYS and the 23 centers) | Event catalogs, subscription relations, and orchestration-structure validity belong to the centers; the stacks here only execute |
+| Application integration | [opic-techbase](https://github.com/Project-Opic/opic-techbase) | The techbase must not connect NATS / Temporal clients directly; it calls through the interface layer (`internal/pkg/eventbus`, `internal/pkg/workflow`) whose external implementations are the stacks in this repository |
+| Production distribution | Temporal Helm Chart, NATS Helm Chart | This repository defaults to single-node intranet deployments; for multi-node production with TLS and external databases, use the official Helm charts — this repository's configuration serves as the parameter reference |
+| Registry | Harbor | Stores backend and frontend images; the step-1 installer provisions it unless `--no-registry` is passed |
 
-> **两者的归属与边界见 [`docs/O-SYS-集成说明.md`](docs/O-SYS-集成说明.md)** —— 落 stack 之前请先读它：组件只承担**执行器**职责，事件编目、订阅关系、编排结构合法性等**语义权威仍在能力中心**。
->
-> **部署顺序见 [`docs/部署顺序.md`](docs/部署顺序.md)** —— 覆盖「主机前置 → 数据与身份地基 → 第 3 层中间件 → 23 个能力中心 → 观测收口」的完整顺序、7 条排序判据（J1~J7）与逐条专家理由。**启动正序、停止逆序**。
+## Repository Map
 
----
+| Component | Path | Description |
+|---|---|---|
+| **Configuration source** | [`.env.example`](.env.example) | The single configuration template; `bin/gen-env.sh` generates `.env` with all passwords |
+| **Orchestration scripts** | [`bin/`](bin) | `common.sh` shared functions, `gen-env.sh` password generation, `install-step1.sh` F0~F8 orchestration, `verify-step1.sh` health gates, `teardown-step1.sh` reverse-order stop, `gen-certs.sh`, `backup-prod.sh` |
+| **Stacks** | [`stacks/`](stacks) | `database` / `redis` / `traefik` / `zero-trust` / `casdoor` / `registry` plus `nats` (Server + JetStream) and `temporal` (PG16 + Server + UI + admin-tools) |
+| **Component configs** | [`configs/`](configs) | `nats/nats-server.conf` (JetStream and listeners; capacity limits live here because NATS configs do not interpolate environment variables) and `temporal/development-sql.yaml` |
+| **Observability** | [`observability/`](observability) | Grafana dashboard, vmalert rules, file-sd targets, installer |
+| **Offline kit** | [`offline-kit/`](offline-kit) | Media pack / install scripts and demo compose files |
+| **Documentation** | [`docs/`](docs) | Step-1 installation and containerization, operations manual, production plan, O-SYS integration boundary, deployment order |
 
-## 一、这个仓库解决什么问题
+## Base Software
 
-引入 NATS 与 Temporal 后，分布式能力对交付提出了三个新要求：
+Component versions are pinned in `.env.example` (all overridable) and verified in production.
 
-- **配置要收敛**：端口、口令、数据目录若散落在各 stack 的 compose 里，改一次现场参数要改十几处。
-- **语义不能漂移**：这两个组件是「第 3 层实现」，一旦有第二处定义事件或工作流，就产生了第二份真相。
-- **现场要能起得来**：Temporal 的持久化、可见性存储、健康检查都有坑，需要一个已验证的默认组合。
+| Component | Default version | Notes |
+|---|---|---|
+| NATS Server | `2.14-alpine` | Stable line as of 2026-08 (upstream latest 2.14.6) |
+| Temporal Server | `1.29.0` | Highest 1.29.x from the auto-setup image |
+| Temporal UI | `2.34.0` | Pairs with Server 1.29 |
+| Temporal admin-tools | `1.30.4` | Upstream has no 1.29.0; the CLI is backward compatible with the 1.29 server |
+| PostgreSQL | `16-alpine` | Aligned with the platform-wide PG16 standard |
+| ZITADEL | `v4.19.3` | ghcr tag carries the `v` prefix |
+| Harbor | `v2.12.2` | Official installer self-managed; use `HARBOR_INSTALLER_DIR` for the offline installer when the restricted network cannot reach v2.15.2 |
+| Docker Engine | 24+ with Compose v2 | Root filesystem with ≥ 20 GiB free |
 
-本仓库把上述内容收敛为：**一个 `.env` ＋ 每个组件一个 stack ＋ 一份集成边界说明**。
+Upgrade path: change the tag in `.env` → `docker compose pull` → `docker compose up -d`. The Temporal schema migration runs automatically at container start via the auto-setup image.
 
----
+## Usage
 
-## 二、快速开始
+### Prerequisites
 
-### 前置
-
-- Docker Engine 24+ 与 Compose v2；根分区可用空间 ≥ 20 GiB
-- 端口规划：默认高位端口（DEV 实测 80/443/8080/8000/4222/5432 等常被占用），见 `.env.example` 注释
-- 前置网络（脚本自动创建，只需一次）：
+- Docker Engine 24+ and Compose v2; root filesystem with ≥ 20 GiB free
+- Port planning: default high ports (80/443/8080/8000/4222/5432 are frequently occupied in DEV — see the `.env.example` comments)
+- The shared external network, created once by the scripts:
 
 ```bash
 docker network create opic-net
 ```
 
-### ① 一键安装第一步·基础设施（推荐）
+### One-Command Step 1 · Infrastructure (recommended)
 
 ```bash
-bash bin/install-step1.sh                 # F0~F8 全量（含 Harbor）
-bash bin/install-step1.sh --no-registry   # 跳过 Harbor（离线拿不到安装器时）
-bash bin/verify-step1.sh                  # 八项健康门禁（可随时重跑）
-bash bin/teardown-step1.sh                # 逆序停止（数据保留）
+bash bin/install-step1.sh                 # F0~F8 full run (including Harbor)
+bash bin/install-step1.sh --no-registry   # skip Harbor (when the offline installer is unavailable)
+bash bin/verify-step1.sh                  # eight health gates (re-runnable at any time)
+bash bin/teardown-step1.sh                # reverse-order stop (data retained)
 ```
 
-细节见 [`docs/第一步-容器化部署.md`](docs/第一步-容器化部署.md) 与 [`docs/运维手册-step1.md`](docs/运维手册-step1.md)。
+Details: [`docs/第一步-容器化部署.md`](docs/第一步-容器化部署.md) and [`docs/运维手册-step1.md`](docs/运维手册-step1.md).
 
-### ② 逐栈部署 NATS（事件总线）
+### Per-Stack Deployment — NATS (event bus)
 
 ```bash
 cp .env.example .env
-vim .env                                  # 至少填 NATS_USER / NATS_PASSWORD
+vim .env                                  # at minimum NATS_USER / NATS_PASSWORD
 
 cd stacks/nats
 docker compose up -d
-bash post-install.sh                      # 校验 JetStream 并打印接入信息
+bash post-install.sh                      # verifies JetStream and prints access information
 
-# 已就绪：nats://127.0.0.1:4222 ｜ 监控 http://127.0.0.1:8222/varz
+# ready: nats://127.0.0.1:4222 ｜ monitoring http://127.0.0.1:8222/varz
 ```
 
-### ③ 逐栈部署 Temporal（流程引擎运行）
+### Per-Stack Deployment — Temporal (workflow runtime)
 
 ```bash
-vim .env                                  # 再填 TEMPORAL_PG_PASSWORD
+vim .env                                  # also TEMPORAL_PG_PASSWORD
 
 cd stacks/temporal
-docker compose up -d                      # 首启自动建库表与 schema
-bash post-install.sh                      # 等待 SERVING 并创建业务命名空间
+docker compose up -d                      # schema setup on first start
+bash post-install.sh                      # waits for SERVING and creates the business namespace
 
-# Web UI：http://127.0.0.1:8233 ｜ gRPC：127.0.0.1:7233
+# Web UI: http://127.0.0.1:8233 ｜ gRPC: 127.0.0.1:7233
 ```
 
-### 停止 / 清理
+### Stop / Clean Up
 
 ```bash
 cd stacks/<name>
-docker compose down                       # 停容器，保留数据
-docker compose down -v                    # 连同匿名卷一并清理（数据目录为 bind mount，需另行删除）
+docker compose down                       # stop containers, retain data
+docker compose down -v                    # also remove anonymous volumes (data directories are bind mounts and must be deleted separately)
 ```
 
----
+## Deployment
 
-## 三、目录结构
+Production deployment follows the order in [`docs/部署顺序.md`](docs/部署顺序.md): host prerequisites → data and identity foundation → layer-3 middleware → the 23 capability centers → observability. **Start in order, stop in reverse order.**
 
-```
-opic-deploy/
-├── .env.example                       # 唯一配置源模板（→ bin/gen-env.sh 生成 .env）
-├── bin/
-│   ├── common.sh                      # 编排公共函数
-│   ├── gen-env.sh                     # F1：生成 .env 并填充全部口令（复杂度合规）
-│   ├── install-step1.sh               # F0~F8 一键安装编排（幂等）
-│   ├── verify-step1.sh                # 八项健康门禁
-│   └── teardown-step1.sh              # 逆序停止/重置
-├── stacks/
-│   ├── database/  redis/  traefik/  zero-trust/  casdoor/  registry/
-│   ├── nats/
-│   │   ├── docker-compose.yml         # NATS Server ＋ JetStream
-│   │   └── post-install.sh            # 校验 JetStream ＋ 输出接入信息
-│   └── temporal/
-│       ├── docker-compose.yml         # PG16 ＋ Temporal ＋ UI ＋ admin-tools(profile)
-│       └── post-install.sh            # 等 SERVING ＋ 建业务命名空间
-├── configs/
-│   ├── nats/nats-server.conf          # JetStream 与监听配置
-│   └── temporal/development-sql.yaml  # Temporal 动态配置
-└── docs/
-    ├── O-SYS-集成说明.md               # 与能力中心的语义对应与四条硬边界
-    └── 部署顺序.md                     # 部署顺序、排序判据（J1~J7）与专家理由 —— 本仓单一事实源
-```
+Configuration discipline — two rules that exist because of delivery-site incidents:
 
----
+1. **Only switches that actually take effect are kept.** Any variable that is configured but has no effect must be deleted — it manufactures false confidence on site.
+2. **Passwords exist only in `.env`.** Files under `configs/` contain no passwords. NATS authentication is injected from environment variables via the command line; Temporal's database password is injected the same way.
 
-## 四、配置说明
+> **One deliberate exception**: NATS configuration does not support environment-variable interpolation, so the **JetStream capacity limits live in `configs/nats/nats-server.conf`**, not in `.env`. Adjust limits there — this avoids a dangling configuration where changing `.env` has no effect.
 
-全部可调项集中在 **`.env`**（见 `.env.example` 的逐项注释）。两条纪律：
+### Security Baseline
 
-1. **只保留真正生效的开关**：任何「配了不生效」的变量都必须删掉——它会在交付现场制造假安全感。
-2. **口令只存在于 `.env`**：`configs/` 下的配置文件**不含**任何口令。NATS 的鉴权经命令行从环境变量注入；Temporal 的库口令经环境变量注入。
-
-> **一个例外**：NATS 配置不支持环境变量插值，因此 **JetStream 的容量限额写在 `configs/nats/nats-server.conf`**，而不是 `.env`。要调整限额请改该文件（这是刻意的设计，避免出现"改了 .env 却不生效"的悬空配置）。
-
----
-
-## 五、安全须知
-
-| 组件 | 默认状态 | 对外暴露前必须做 |
+| Component | Default state | Required before external exposure |
 |---|---|---|
-| **Temporal** | gRPC frontend（7233）与 Web UI **默认不启用认证**（官方默认口径） | 反向代理 ＋ 鉴权，或启用 mTLS / authorization interceptor |
-| **NATS** | 已启用 user/password 鉴权（本仓库强制要求 `NATS_PASSWORD`） | 监控端点（8222）**不要暴露到公网**；跨机部署时启用 TLS |
-| **PostgreSQL** | 仅容器网络内可达，**未映射宿主端口** | 保持不映射；如需外部访问请走受控代理 |
+| **Temporal** | gRPC frontend (7233) and Web UI have **no authentication by default** (official default) | Reverse proxy with authentication, or enable mTLS / authorization interceptor |
+| **NATS** | User/password authentication enabled (this repository requires `NATS_PASSWORD`) | Do not expose the monitoring endpoint (8222) to the public internet; enable TLS for cross-host deployments |
+| **PostgreSQL** | Reachable only inside the container network; **no host port mapped** | Keep it unmapped; use a controlled proxy for external access |
 
-**部署形态建议**：本仓库默认按**内网单节点**设计。生产环境需要多节点、TLS、外部托管数据库时，请使用 Temporal 官方 Helm Chart 与 NATS 官方 Helm Chart，本仓库的配置可作为参数取值参考。
+**Deployment shape**: this repository defaults to a **single-node intranet** design. For multi-node production, TLS, or externally managed databases, use the official Temporal and NATS Helm charts; this repository's configuration serves as the parameter reference.
 
----
+## Contributing
 
-## 六、版本
+Before opening a pull request, please confirm:
 
-| 组件 | 默认版本 | 说明 |
-|---|---|---|
-| NATS Server | `2.14-alpine` | 2026-08 时点的稳定线（官方最新 2.14.6） |
-| Temporal Server | `1.29.0` | auto-setup 镜像上游最高 1.29.x（docker-compose 仓已归档） |
-| ZITADEL | `v4.19.3` | ghcr tag 带 v 前缀；masterkey/口令复杂度见 gen-env |
-| Harbor | `v2.12.2`（DEV 实测） | 官方安装器自管；在线 v2.15.2 在受限网络不可得时用 `HARBOR_INSTALLER_DIR` 离线安装器 |
-| Temporal UI | `2.34.0` | 与 Server 1.29 配套 |
-| Temporal admin-tools | `1.30.4` | 上游无 1.29.0；CLI 对 1.29 server 向后兼容 |
-| PostgreSQL | `16-alpine` | 与 OPIC 统一 PG16 口径一致 |
+1. New stacks follow the single-configuration-source discipline: every parameter comes from `.env`, and no password is written into `configs/`.
+2. Any new stack ships with a `post-install.sh` that verifies the component and prints its access information.
+3. Changes to the deployment order or its criteria land in [`docs/部署顺序.md`](docs/部署顺序.md) — this repository's single source of truth for ordering.
+4. Component version bumps state the verification basis (what was tested, where).
 
-版本均可经 `.env` 覆盖。升级步骤：改 `.env` 的 tag → `docker compose pull` → `docker compose up -d`（Temporal 的 schema 迁移由 auto-setup 镜像在启动时自动完成）。
+Branch names and commit messages follow `feat|fix|docs|chore(scope): summary`.
 
----
+By submitting a contribution, you agree to license it under the [Mulan PSL v2](LICENSE).
 
-## 七、与 opic-techbase 的对接
+## Roadmap
 
-`opic-techbase`（OPIC 平台底座项目）**不应直连** NATS / Temporal 客户端，而应经接口层调用：
+This repository does not maintain a long-range feature roadmap. Planned work and progress are tracked in the open:
 
-| 能力 | 接口层 | 默认实现 | 外部实现 |
-|---|---|---|---|
-| 事件发布 / 订阅 | `internal/pkg/eventbus` | 进程内（零依赖） | NATS（本仓库 `stacks/nats`） |
-| 工作流执行 | `internal/pkg/workflow` | 自研轻量引擎 | Temporal（本仓库 `stacks/temporal`） |
+- **Recently completed**: the step-1 infrastructure installer with eight health gates and reverse-order teardown; the NATS and Temporal stacks with verified default combinations; the offline kit for air-gapped sites; the techbase observability bundle.
+- **Known gaps**: multi-node production topologies (TLS, external databases) are intentionally delegated to the official Helm charts; remaining layer-3 middleware stacks follow the same discipline as they land.
+- **Limitations**: this repository is an execution layer — it defines no events, subscriptions, or orchestration structures; semantic authority stays with the capability centers.
 
-接口层的意义：保持脚手架「复制即可运行」的轻量特性，并让中间件不可用时业务系统仍可降级 —— 这与「第 3 层可替换」纪律一致。
+## Community
 
----
+- **Issues and suggestions**: open a repository issue with reproduction steps and environment details (component, version, deployment mode).
+- **Internal channels**: the OPIC platform team; production incidents go through the on-call channel.
 
-## 八、参考出处
+## Security & Support
 
-| 项 | 出处 |
-|---|---|
-| 语义级 / 实现级判据、执行器不建对象 | 《00-总体规划-OPIC本体化重构》附录 A；`O-SYS` 正文 §1.3 |
-| 归属与承接登记 | 总纲附录 **A.2 v3.3 增补映射**；`O-SYS` 编制说明 **G.2** |
-| 归属评估过程 | `opic-ontology/output/112-评估-Temporal与NATS归属及techbase更新.md` |
-| Temporal 部署形态与认证默认值 | Temporal 官方文档与 `temporalio/docker-compose` 仓库（2026-08 核对） |
-| NATS JetStream 投递语义 | NATS 官方文档 `nats-concepts/jetstream`（at-least-once 为基础保证） |
+- **Reporting a vulnerability**: please do not open a public issue; contact the platform team directly. The security baseline includes enforced NATS authentication, PostgreSQL without host port mapping, and passwords confined to `.env`.
+- **Support scope**: the current main branch and the deployed production version.
+
+## License
+
+Copyright © 2026 wjluo
+
+This project is licensed under the **Mulan Permissive Software License, Version 2 (Mulan PSL v2)**. The full text is in [`LICENSE`](LICENSE) and is also available at <http://license.coscl.org.cn/MulanPSL2>.
+
+Subject to the terms of the license, you may copy, use, modify, and distribute this software, including for commercial purposes; copyright and license notices must be retained when redistributing. Section 3 grants no trademark license, and Section 5 provides the software on an "AS IS" basis without warranties of any kind.
+
+### Third-Party Components
+
+All components shipped by this repository (NATS, Temporal, PostgreSQL, ZITADEL, Harbor, Traefik, and others) run under their respective upstream licenses. Refer to each upstream project for the exact terms.
