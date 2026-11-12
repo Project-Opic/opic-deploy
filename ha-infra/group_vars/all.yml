@@ -1,0 +1,100 @@
+[global_vars]
+# ── 编译参数 ──
+drbd_version: "9.2.20"
+drbd_utils_version: "9.29.0"
+drbd_kernel_flavor: "openEuler"
+drbd_kernel_release: "5.10.0-106.18.0.68.oe2203.x86_64"
+drbd_spatch_service: "https://spatch.as-a-service"
+
+ganesha_version: "15.7"
+ganesha_ntirpc_version: "6.3"
+
+# ── Pigsty ──
+pigsty_version: "v4.5.0"
+pigsty_release_url: "https://github.com/Vonng/pigsty/releases/download/{{ pigsty_version }}/pigsty-{{ pigsty_version }}.tgz"
+pigsty_home: "/data/pigsty"
+pigsty_node_image: "pigsty-node:12"
+pigsty_pg_data: "/data/postgres"
+pigsty_docker_data: "/data/docker"
+
+# ── 端口 ──
+port_map:
+  traefik_tls: 443
+  harbor_nginx: 18701
+  harbor_haproxy: 18700
+  pg_haproxy: 5433
+  pg_pgsql: 5432
+  pg_pgbouncer: 6432
+  redis: 6379
+  redis_sentinel: 26379
+  etcd_client: 2479
+  etcd_peer: 2480
+  kafka_client: 9092
+  kafka_ssl: 9093
+  kafka_exporter: 9308
+  minio_api: 9000
+  minio_console: 9090
+  casdoor_http: 8000
+  casdoor_https: 8001
+  zitadel_http: 8080
+  gitea_http: 3000
+  gitea_ssh: 2222
+  temporal_grpc: 7233
+  temporal_http: 7234
+  nats_client: 4222
+  nats_cluster: 6222
+  nats_monitor: 8222
+  vibe_https: 8443
+  patroni_rest: 8008
+  node_exporter: 9100
+  haproxy_exporter: 9101
+  nginx_exporter: 9113
+  blackbox_exporter: 9115
+  redis_exporter: 9121
+  pg_exporter: 9630
+  victoria_logs: 9428
+  victoria_traces: 10428
+  alertmanager: 9059
+  alertmanager_cluster: 9093
+  grafana: 3000
+  infra_nginx_http: 28080
+  infra_nginx_https: 28443
+  infra_silo: 9000
+
+# ── Harbor ──
+harbor_version: "2.15.2"
+harbor_installer_dir: "/opt/opic/ha-stack/harbor-installer"
+harbor_external_database: true
+harbor_external_redis: true
+harbor_redis_sentinel_master_set: "mymaster"
+
+# ── 证书 ──
+cert_platform_dir: "/opt/cfssl-platform"
+cert_output_dir: "/opt/opic/harbor/tls"
+cert_san_hosts:
+  - "registry.opic-dev.ccoe.tech"
+  - "*.opic-dev.ccoe.tech"
+  - "55.32.170.3"
+  - "55.32.170.4"
+  - "55.32.170.133"
+  - "55.32.170.134"
+  - "55.32.170.141"
+  - "localhost"
+  - "127.0.0.1"
+
+# ── 门禁 ──
+verify_gates_path: "/opt/opic/ha-stack/gates.tsv"
+verify_script_path: "/opt/opic/ha-stack/verify-step1.sh"
+
+# ── 离线介质 ──
+offline_mode: true
+offline_dir: "/opt/opic/offline"
+offline_packages:
+  - "drbd-9.2.20-{{ drbd_kernel_release }}.tar.gz"
+  - "drbd-utils-9.29.0.tar.gz"
+  - "nfs-ganesha-15.7.tar.gz"
+  - "ntirpc-6.3.tar.gz"
+  - "harbor-offline-installer-v2.15.2.tgz"
+  - "pigsty-v4.5.0.tgz"
+  - "cfssl_1.7.1_linux_amd64"
+  - "cfssljson_1.7.1_linux_amd64"

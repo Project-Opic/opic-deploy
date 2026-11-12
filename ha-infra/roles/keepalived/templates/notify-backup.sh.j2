@@ -1,0 +1,24 @@
+#!/bin/bash
+# notify-backup.sh — keepalived BACKUP/FAULT 事件 + ExecStop
+# 链：stop ganesha → umount → status||up → secondary
+RES={{ drbd_resource | default('nfsdata') }}
+MNT={{ ganesha_export_path | default('/srv/nfs/harbor') }}
+LOG=/var/log/opic-ha.log
+
+log() { echo "$(date -Iseconds) backup[$(hostname)] $*" >>"$LOG"; }
+
+systemctl stop nfs-ganesha >>"$LOG" 2>&1 || log "ganesha stop returned non-zero (was not running?)"
+
+if mountpoint -q "$MNT"; then
+    if ! umount "$MNT" >>"$LOG" 2>&1; then
+        umount -l "$MNT" >>"$LOG" 2>&1 && log "lazy-unmounted $MNT" || log "UMOUNT FAILED for $MNT"
+    else
+        log "unmounted $MNT"
+    fi
+fi
+
+# ensure resource is attached (reconnect after cold restart)
+drbdadm status "$RES" >/dev/null 2>&1 || drbdadm up "$RES" >>"$LOG" 2>&1 || log "drbdadm up failed"
+drbdadm secondary "$RES" >>"$LOG" 2>&1 || log "drbdadm secondary failed"
+
+exit 0

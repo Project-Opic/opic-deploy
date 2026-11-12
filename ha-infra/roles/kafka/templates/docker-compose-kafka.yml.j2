@@ -1,0 +1,21 @@
+# Kafka KRaft combined ×{{ kafka_replicas | default(3) }} SCRAM-SHA-512
+version: "3.8"
+services:
+  kafka:
+    image: "{{ kafka_image | default('pigsty/kafka:3.5.1') }}"
+    container_name: kafka-{{ ansible_hostname }}
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: "{{ kafka_seq }}"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "BROKER://0.0.0.0:{{ port_map.kafka_client }},CONTROLLER://0.0.0.0:{{ port_map.kafka_ssl }}"
+      KAFKA_ADVERTISED_LISTENERS: "BROKER://{{ ansible_host }}:{{ port_map.kafka_client }}"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "{% for h in groups['kafka_cluster'] %}{{ hostvars[h].kafka_seq | default(loop.index) }}@{{ hostvars[h].ansible_host }}:{{ port_map.kafka_ssl }}{% if not loop.last %},{% endif %}{% endfor %}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "BROKER:SASL_SSL,CONTROLLER:SSL"
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf"
+    volumes:
+      - "{{ opic_ha_stack }}/kafka/data:/var/lib/kafka/data"
+      - "{{ opic_ha_stack }}/kafka/server.properties:/etc/kafka/server.properties:ro"
+      - "{{ opic_ha_stack }}/kafka/ssl:/etc/kafka/ssl:ro"

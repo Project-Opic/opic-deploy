@@ -1,0 +1,6 @@
+.cache/
+ansible.log
+*.pyc
+__pycache__/
+hosts
+*.vault.yml

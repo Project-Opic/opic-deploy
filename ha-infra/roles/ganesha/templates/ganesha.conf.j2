@@ -1,0 +1,32 @@
+# Ganesha NFSv4 export — OPIC Harbor data
+NFS_Core_Param {
+    Protocols = {{ ganesha_protocols }};
+    NFS_Protocols = {{ ganesha_protocols }};
+    Transports = {{ ganesha_transports }};
+}
+
+EXPORT
+{
+    Export_ID = {{ ganesha_export_id }};
+    Path = {{ ganesha_export_path }};
+    Pseudo = {{ ganesha_pseudo_path }};
+    Protocols = {{ ganesha_protocols }};
+    Transports = {{ ganesha_transports }};
+    SecType = {{ ganesha_sec_type }};
+
+    FSAL {
+        Name = VFS;
+    }
+
+    CLIENT {
+        Clients = 55.32.170.0/24;
+        Access_Type = RW;
+        Squash = No_Root_Squash;
+        Protocols = {{ ganesha_protocols }};
+    }
+}
+
+LOG {
+    Default_Log_Level = EVENT;
+    Log Facility { file { path = "/var/log/ganesha.log"; } };
+}

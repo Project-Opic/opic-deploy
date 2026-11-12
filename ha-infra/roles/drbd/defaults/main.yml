@@ -1,0 +1,34 @@
+---
+# DRBD 角色默认值（对应 runbook P2a）
+drbd_version: "9.2.20"
+drbd_utils_version: "9.29.0"
+drbd_resource: "nfsdata"
+drbd_protocol: "C"
+drbd_resync_rate: "1024M"
+drbd_c_plan_ahead: "0"
+drbd_device: "/dev/drbd0"
+drbd_disk: ""  # 每节点不同，从 inventory 取
+drbd_meta_disk: "internal"
+drbd_fs_type: "xfs"
+drbd_mount_point: "/srv/nfs/harbor"
+drbd_source_dir: "/opt/opic/build/drbd-{{ drbd_version }}"
+drbd_utils_source_dir: "/opt/opic/build/drbd-utils-{{ drbd_utils_version }}"
+drbd_shared_secret: ""  # 必须由 vault 或 group_vars/all.vault.yml 提供
+drbd_peer_addresses: []
+# 例: ["55.32.170.133:7789", "55.32.170.134:7789"]
+
+ganesha_export_id: 77
+ganesha_export_path: "/srv/nfs/harbor"
+ganesha_pseudo_path: "/srv/nfs/harbor"
+ganesha_protocols: "4"
+ganesha_transports: "TCP"
+ganesha_sec_type: "sys"
+keepalived_vrid: 201
+keepalived_interface: "br0"
+keepalived_vip: "55.32.170.3/24"
+keepalived_priority: 150  # inventory 覆盖：133=150 / 134=100
+keepalived_state: "BACKUP"  # 两台都 BACKUP + nopreempt = 手工回切
+keepalived_advert_int: 1
+keepalived_unicast_src_ip: ""  # inventory 覆盖
+keepalived_unicast_peer: []  # inventory 覆盖
+keepalived_vip: "55.32.170.3/24 dev br0"

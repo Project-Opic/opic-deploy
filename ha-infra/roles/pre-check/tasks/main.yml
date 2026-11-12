@@ -1,0 +1,106 @@
+---
+# pre-check 角色任务（对应 runbook H0 + P0）
+# 只读核查：OS/内核、NTP、磁盘、端口、防火墙、内存
+# 门禁不过则中止后续 play
+
+- name: assert OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family in ['openEuler', 'Anolis', 'RedHat', 'CentOS']
+    fail_msg: "不支持的 OS: {{ ansible_os_family }}（需要 openEuler 22.03 或 Anolis 8.8）"
+    success_msg: "OS 检查通过: {{ ansible_os_family }} {{ ansible_distribution_version }}"
+
+- name: assert kernel version
+  ansible.builtin.assert:
+    that:
+      - ansible_kernel is version('5.10.0', '>=')
+    fail_msg: "内核版本过低: {{ ansible_kernel }}（需 ≥5.10，DRBD 9.2.20 编译要求）"
+    success_msg: "内核版本: {{ ansible_kernel }}"
+
+- name: assert CPU cores
+  ansible.builtin.assert:
+    that:
+      - ansible_processor_vcpus >= min_cpu_count | int
+    fail_msg: "CPU 核数不足: {{ ansible_processor_vcpus }} < {{ min_cpu_count }}"
+    success_msg: "CPU: {{ ansible_processor_vcpus }} 核"
+
+- name: gather memory info
+  ansible.builtin.set_fact:
+    mem_free_gb: "{{ (ansible_memtotal_mb / 1024) | round(0) | int }}"
+
+- name: assert free memory
+  ansible.builtin.assert:
+    that:
+      - mem_free_gb | int >= min_free_memory_gb | int
+    fail_msg: "内存不足: {{ mem_free_gb }}GB < {{ min_free_memory_gb }}GB"
+    success_msg: "内存: {{ mem_free_gb }}GB"
+
+- name: check NTP source reachable
+  ansible.builtin.command: chronyc sources
+  register: ntp_out
+  changed_when: false
+  failed_when: false
+
+- name: warn if NTP not synchronized
+  ansible.builtin.debug:
+    msg: "⚠ NTP 未同步（§35 已报站点），排障时按 epoch 对齐日志"
+  when: "'^*' not in ntp_out.stdout and 'MS Name/IP' not in ntp_out.stdout"
+
+- name: list NVMe disks
+  ansible.builtin.command: lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT -d
+  register: lsblk_out
+  changed_when: false
+
+- name: show NVMe inventory
+  ansible.builtin.debug:
+    msg: "{{ lsblk_out.stdout_lines }}"
+
+- name: check required ports availability
+  ansible.builtin.shell: |
+    ss -ltn | awk '{print $4}' | grep -oE '[0-9]+$' | sort -un
+  register: used_ports
+  changed_when: false
+
+- name: assert no port conflicts
+  ansible.builtin.set_fact:
+    conflicting_ports: "{{ required_ports | map('string') | select('in', used_ports.stdout_lines) | list }}"
+
+- name: fail if port conflict
+  ansible.builtin.assert:
+    that:
+      - conflicting_ports | length == 0
+    fail_msg: "端口冲突: {{ conflicting_ports }}"
+    success_msg: "端口检查通过（{{ required_ports | length }} 个目标端口均空闲）"
+
+- name: check firewalld status
+  ansible.builtin.command: systemctl is-active firewalld
+  register: firewalld_status
+  changed_when: false
+  failed_when: false
+
+- name: warn firewalld
+  ansible.builtin.debug:
+    msg: "firewalld: {{ firewalld_status.stdout }}（设计口径：三台 firewalld inactive，不加 iptables 规则）"
+
+- name: check DRBD kernel-devel match (133/134 only)
+  when: inventory_hostname in groups['nfs_vip']
+  block:
+    - name: get running kernel release
+      ansible.builtin.command: uname -r
+      register: kernel_release
+      changed_when: false
+
+    - name: check kernel-devel package
+      ansible.builtin.shell: |
+        rpm -q kernel-devel --qf '%{version}-%{release}.%{arch}' 2>/dev/null || echo 'NOT_INSTALLED'
+      register: kernel_devel
+      changed_when: false
+
+    - name: warn kernel-devel mismatch
+      ansible.builtin.debug:
+        msg: "⚠ kernel-devel {{ kernel_devel.stdout }} ≠ running {{ kernel_release.stdout }}（DRBD 编译需精确匹配）"
+      when: kernel_devel.stdout != kernel_release.stdout
+
+- name: gate result
+  ansible.builtin.set_fact:
+    pre_check_passed: true

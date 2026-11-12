@@ -1,0 +1,117 @@
+---
+# Harbor 角色任务（对应 runbook P4+P5+P2.1+Q-43）
+# 前置：DRBD/NFS 数据面已挂载、PG/Redis 已可路由
+
+- name: create data volume mount point
+  ansible.builtin.file:
+    path: "{{ harbor_data_volume }}"
+    state: directory
+    mode: '0755'
+
+- name: mount NFS data volume (fstab hard)
+  ansible.builtin.mount:
+    path: "{{ harbor_data_volume }}"
+    src: "{{ opic_nfs_vip }}:{{ opic_nfs_export }}"
+    fstype: nfs4
+    opts: "{{ opic_nfs_mount_opts }},_netdev"
+    state: mounted
+
+- name: create harbor-installer directory
+  ansible.builtin.file:
+    path: "{{ harbor_installer_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: copy harbor offline installer
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/harbor-offline-installer-v{{ harbor_version }}.tgz"
+    dest: "{{ harbor_installer_dir }}/"
+    mode: '0644'
+
+- name: extract installer
+  ansible.builtin.unarchive:
+    src: "{{ harbor_installer_dir }}/harbor-offline-installer-v{{ harbor_version }}.tgz"
+    dest: "{{ harbor_installer_dir }}"
+    remote_src: true
+    creates: "{{ harbor_installer_dir }}/harbor-installer/harbor.yml"
+
+- name: render harbor.yml (external_database + external_redis)
+  ansible.builtin.template:
+    src: harbor.yml.j2
+    dest: "{{ harbor_installer_dir }}/harbor-installer/harbor.yml"
+    mode: '0600'
+  notify:
+    - harbor prepare
+    - harbor compose up
+
+- name: run ./prepare
+  ansible.builtin.command: ./prepare
+  args:
+    chdir: "{{ harbor_installer_dir }}/harbor-installer"
+  creates: "{{ harbor_installer_dir }}/harbor-installer/docker-compose.yml"
+
+# ── P2.1 三件套 ──
+- name: set restart=no (P2.1 fix)
+  ansible.builtin.replace:
+    path: "{{ harbor_installer_dir }}/harbor-installer/docker-compose.yml"
+    regexp: 'restart: always'
+    replace: 'restart: no'
+
+- name: render opic-mount-guard.conf
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      ConditionPathIsMountPoint={{ harbor_data_volume }}
+    dest: /etc/systemd/system/opic-harbor.service.d/opic-mount-guard.conf
+    mode: '0644'
+  notify: daemon reload
+
+- name: render opic-harbor-watch.service
+  ansible.builtin.template:
+    src: opic-harbor-watch.service.j2
+    dest: /etc/systemd/system/opic-harbor-watch.service
+    mode: '0644'
+  notify: daemon reload
+
+- name: render opic-harbor-watch.timer
+  ansible.builtin.template:
+    src: opic-harbor-watch.timer.j2
+    dest: /etc/systemd/system/opic-harbor-watch.timer
+    mode: '0644'
+  notify: daemon reload
+
+- name: enable and start harbor + watchdog
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - opic-harbor.service
+    - opic-harbor-watch.service
+    - opic-harbor-watch.timer
+
+- name: wait for harbor healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ harbor_port }}/api/v2.0/health"
+    method: GET
+    status_code: 200
+  register: health
+  retries: 30
+  delay: 5
+  until: health.status == 200
+
+# ── df 影子绑定检查（P2.1 事故判定法） ──
+- name: verify no shadow bindings (§五-8)
+  ansible.builtin.shell: |
+    for c in harbor-core harbor-jobservice registry; do
+      fs=$(docker exec "$c" df -h /data 2>/dev/null | tail -1 | awk '{print $1}')
+      if echo "$fs" | grep -q '/dev/mapper'; then
+        echo "SHADOW_BINDING|$c=$fs"
+        exit 1
+      fi
+    done
+    echo "NO_SHADOW"
+  register: shadow_check
+  changed_when: false
+  failed_when: "'SHADOW_BINDING' in shadow_check.stdout"

@@ -1,0 +1,177 @@
+---
+# DRBD 角色任务（对应 runbook P2a + P2b）
+# 序列：kernel-devel 检查 → 源码编译 → create-md → attach → primary → 同步 → XFS → 挂载
+# ⚠ 首次全量同步 7.3T ≈ 2h @1.0GB/s——需要停写窗
+
+- name: install kernel-devel (if not present)
+  ansible.builtin.package:
+    name: "kernel-devel-{{ ansible_kernel }}"
+    state: present
+  when: ansible_os_family in ['openEuler', 'Anolis']
+
+- name: verify kernel-devel matches running kernel
+  ansible.builtin.shell: |
+    rpm -q kernel-devel --qf '%{version}-%{release}.%{arch}' 2>/dev/null | grep -q '{{ ansible_kernel }}'
+  register: kdev_match
+  changed_when: false
+  failed_when: kdev_match.rc != 0
+
+- name: create build directory
+  ansible.builtin.file:
+    path: "{{ drbd_source_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: copy DRBD source tarball (offline media)
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/drbd-{{ drbd_version }}.tar.gz"
+    dest: "{{ drbd_source_dir }}/"
+    mode: '0644'
+  when: offline_mode | bool
+
+# ── DRBD kernel module ──
+- name: extract DRBD source
+  ansible.builtin.unarchive:
+    src: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}.tar.gz"
+    dest: "{{ drbd_source_dir }}"
+    remote_src: true
+    creates: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/drbd"
+
+- name: generate compat patch (spatch-as-a-service)
+  ansible.builtin.get_url:
+    url: "{{ drbd_spatch_service }}/compat?kernel={{ ansible_kernel }}&drbd={{ drbd_version }}"
+    dest: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/compat.patch"
+    mode: '0644'
+  when: ansible_os_family == 'openEuler'
+  # 仅首次需要；后续缓存于 cocci_cache/
+
+- name: apply compat patch
+  ansible.builtin.command: patch -p1 -i compat.patch
+  args:
+    chdir: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}"
+  creates: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/.compat_applied"
+
+- name: mark compat applied
+  ansible.builtin.file:
+    path: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/.compat_applied"
+    state: touch
+
+- name: compile DRBD kernel module
+  ansible.builtin.make:
+    chdir: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/drbd"
+    target: all
+  # 编译耗时 ~5min/台
+
+- name: install DRBD kernel module
+  ansible.builtin.make:
+    chdir: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/drbd"
+    target: install
+
+- name: load drbd module
+  community.general.modprobe:
+    name: drbd
+    state: present
+  register: drbd_mod
+
+# ── DRBD utils ──
+- name: extract drbd-utils source
+  ansible.builtin.unarchive:
+    src: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}.tar.gz"
+    dest: "{{ drbd_source_dir }}"
+    remote_src: true
+    creates: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}/configure"
+
+- name: configure drbd-utils
+  ansible.builtin.command: |
+    ./configure --prefix=/usr --localstatedir=/var --sysconfdir=/etc
+  args:
+    chdir: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}"
+    creates: Makefile
+
+- name: compile drbd-utils
+  ansible.builtin.make:
+    chdir: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}"
+
+- name: install drbd-utils
+  ansible.builtin.make:
+    chdir: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}"
+    target: install
+
+- name: verify drbdadm version
+  ansible.builtin.command: drbdadm --version
+  register: drbdadm_ver
+  changed_when: false
+  failed_when: drbdadm_version not in drbdadm_ver.stdout
+
+# ── 资源配置 ──
+- name: render nfsdata.res
+  ansible.builtin.template:
+    src: nfsdata.res.j2
+    dest: /etc/drbd.d/nfsdata.res
+    mode: '0600'
+    owner: root
+    group: root
+  notify: restart drbd
+
+- name: create-md (整分区覆盖 — 需备份 S2D 残留头部)
+  ansible.builtin.command: |
+    drbdadm create-md {{ drbd_resource }} --force
+  register: create_md
+  changed_when: create_md.rc == 0
+  # ⚠ 仅首次执行！二次执行会报 "already exists" → 正常跳过
+
+- name: attach resource (drbdadm up)
+  ansible.builtin.command: drbdadm up {{ drbd_resource }}
+  register: drbd_up
+  changed_when: drbd_up.rc == 0
+  failed_when: false  # 二次执行 "minor exists" 非零退出属正常（§二-23）
+
+- name: wait for peer connection
+  ansible.builtin.command: drbdadm status {{ drbd_resource }}
+  register: drbd_status
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: "'Established' in drbd_status.stdout or 'SyncTarget' in drbd_status.stdout or 'SyncSource' in drbd_status.stdout"
+  when: ansible_play_hosts | length > 1
+
+# ── Primary 提升与格式化（仅在第一台执行）──
+- name: promote to primary
+  ansible.builtin.command: drbdadm primary {{ drbd_resource }} --force
+  when: drbd_seq | default(0) | int == 1
+  run_once: true
+  delegate_to: "{{ groups['nfs_vip'][0] }}"
+
+- name: wait for initial sync
+  ansible.builtin.command: drbdsetup status {{ drbd_resource }}
+  register: sync_status
+  changed_when: false
+  until: "'suspended' not in sync_status.stdout and 'SyncTarget' not in sync_status.stdout"
+  retries: 7200  # 7.3T ≈ 2h，每 5s 检查
+  delay: 5
+  run_once: true
+  delegate_to: "{{ groups['nfs_vip'][0] }}"
+
+- name: format XFS
+  community.general.filesystem:
+    fstype: xfs
+    dev: "{{ drbd_device }}"
+    opts: "-K -f -L OPIC_NFS"
+  when: drbd_seq | default(0) | int == 1
+  run_once: true
+  delegate_to: "{{ groups['nfs_vip'][0] }}"
+
+- name: create mount point
+  ansible.builtin.file:
+    path: "{{ drbd_mount_point }}"
+    state: directory
+    mode: '0755'
+
+- name: mount DRBD XFS
+  ansible.builtin.mount:
+    path: "{{ drbd_mount_point }}"
+    src: "{{ drbd_device }}"
+    fstype: xfs
+    opts: noatime
+    state: mounted
+  when: drbd_seq | default(0) | int == 1
