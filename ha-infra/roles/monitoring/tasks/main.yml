@@ -1,0 +1,15 @@
+---
+# Pigsty infra role（141）—— Grafana/VictoriaLogs/Alertmanager/nginx portal
+- name: delegate to Pigsty infra
+  ansible.builtin.debug:
+    msg: "Pigsty infra role — run inside admin container"
+
+- name: ensure pg containers have exporters
+  ansible.builtin.debug:
+    msg: "pg_monitor role — run inside admin container for pg_cluster"
+
+- name: mask apt-daily timers (pg containers)
+  ansible.builtin.shell: >
+    docker exec pigsty-pg-{{ ansible_hostname }} bash -c
+    'systemctl mask apt-daily.timer apt-daily-upgrade.timer certbot.timer'
+  changed_when: true

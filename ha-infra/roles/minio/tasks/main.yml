@@ -1,0 +1,23 @@
+---
+- name: render minio docker-compose.yml (6-disk EC:3 ×3)
+  ansible.builtin.template:
+    src: docker-compose-minio.yml.j2
+    dest: "{{ opic_ha_stack }}/minio/docker-compose.yml"
+    mode: '0644'
+  notify: docker compose up minio
+
+- name: ensure minio data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+    owner: 1000
+  loop:
+    - /data/minio/1
+    - /data/minio/2
+    - /data/minio/3
+    - /data/minio/4
+
+- name: docker compose up minio
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/minio/docker-compose.yml up -d
+  changed_when: true

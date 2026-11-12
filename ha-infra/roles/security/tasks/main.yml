@@ -1,0 +1,47 @@
+---
+- name: install cfssl + cfssljson
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/cfssl_1.7.1_linux_amd64"
+    dest: /usr/local/bin/cfssl
+    mode: '0755'
+
+- name: install cfssljson
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/cfssljson_1.7.1_linux_amd64"
+    dest: /usr/local/bin/cfssljson
+    mode: '0755'
+
+- name: create cfssl-platform directory
+  ansible.builtin.file:
+    path: "{{ cert_platform_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: verify CA exists
+  ansible.builtin.stat:
+    path: "{{ cert_platform_dir }}/ca/ca.pem"
+  register: ca_stat
+
+- name: assert CA present
+  ansible.builtin.assert:
+    that: ca_stat.stat.exists
+    fail_msg: "平台 CA 不存在: {{ cert_platform_dir }}/ca/ca.pem"
+
+- name: generate Harbor server certificate
+  ansible.builtin.command: >
+    cfssl gencert
+    -ca {{ cert_platform_dir }}/ca/ca.pem
+    -ca-key {{ cert_platform_dir }}/ca/ca-key.pem
+    -config {{ cert_platform_dir }}/ca-config.json
+    -profile server
+    csr/opic-harbor-server-csr.json
+  register: cert_result
+  changed_when: true
+  no_log: true
+
+- name: install Harbor TLS cert + key
+  ansible.builtin.copy:
+    content: "{{ cert_result.json | to_json }}"
+    dest: "{{ cert_output_dir }}/"
+    mode: '0600'
+  no_log: true

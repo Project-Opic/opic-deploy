@@ -1,0 +1,33 @@
+#!/bin/bash
+# notify-master.sh — keepalived MASTER 事件
+# 链：status||up → primary → mountpoint 不在才 mount → start ganesha
+# 任一步败即 exit 1（chk_drbd track_script 兜底 FAULT 交棒）
+RES={{ drbd_resource | default('nfsdata') }}
+DEV={{ drbd_device | default('/dev/drbd0') }}
+MNT={{ ganesha_export_path | default('/srv/nfs/harbor') }}
+LOG=/var/log/opic-ha.log
+
+log() { echo "$(date -Iseconds) master[$(hostname)] $*" >>"$LOG"; }
+
+# attach only when the resource is really not attached
+drbdadm status "$RES" >/dev/null 2>&1 || drbdadm up "$RES" >>"$LOG" 2>&1 || log "drbdadm up failed"
+
+if ! drbdadm primary "$RES" >>"$LOG" 2>&1; then
+    log "drbdadm primary FAILED"
+    exit 1
+fi
+
+if ! mountpoint -q "$MNT"; then
+    if ! mount "$DEV" "$MNT" >>"$LOG" 2>&1; then
+        log "MOUNT FAILED on $DEV -> $MNT"
+        exit 1
+    fi
+fi
+
+if ! systemctl start nfs-ganesha >>"$LOG" 2>&1; then
+    log "nfs-ganesha START FAILED"
+    exit 1
+fi
+
+log "OK: primary + $MNT mounted + nfs-ganesha active"
+exit 0

@@ -1,0 +1,19 @@
+---
+- name: render zitadel docker-compose.yml ×2 (external PG)
+  ansible.builtin.template:
+    src: docker-compose-zitadel.yml.j2
+    dest: "{{ opic_ha_stack }}/zitadel/docker-compose.yml"
+    mode: '0644'
+  notify: docker compose up zitadel
+
+- name: set ZITADEL_MASTERKEY env
+  ansible.builtin.lineinfile:
+    path: "{{ opic_ha_stack }}/zitadel/.env"
+    line: "ZITADEL_MASTERKEY={{ zitadel_masterkey }}"
+    create: true
+    mode: '0600'
+  no_log: true
+
+- name: docker compose up zitadel
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/zitadel/docker-compose.yml up -d
+  changed_when: true

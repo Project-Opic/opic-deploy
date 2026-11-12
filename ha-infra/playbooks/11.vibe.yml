@@ -1,0 +1,5 @@
+---
+# 阶段2-D: VIBE code-server @133
+- hosts: vibe
+  roles:
+    - vibe

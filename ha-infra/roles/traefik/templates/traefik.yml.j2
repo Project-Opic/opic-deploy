@@ -1,0 +1,26 @@
+# Traefik v3 static config
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+entryPoints:
+  websecure:
+    address: ":{{ port_map.traefik_tls }}"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: opic-net
+  file:
+    directory: "{{ opic_ha_stack }}/traefik/dynamic"
+    watch: true
+
+api:
+  dashboard: false
+
+log:
+  level: INFO
+
+certificatesResolvers:
+  default:
+    tls: {}

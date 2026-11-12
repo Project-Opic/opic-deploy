@@ -1,0 +1,21 @@
+---
+# 全量串行（严格顺序，每步门禁不过则中止）
+# ⚠ P2b（DRBD 迁移）与 P4（Harbor 外部化）需要停写窗，不能自动串
+- import_playbook: 00.pre-check.yml
+- import_playbook: 01.drbd.yml
+- import_playbook: 02.ganesha.yml
+- import_playbook: 03.keepalived.yml
+# ── 以下需要停写窗 ──
+- import_playbook: 04.harbor-deploy.yml
+# ── 以下不影响 Harbor ──
+- import_playbook: 05.etcd.yml
+- import_playbook: 06.pg-ha.yml
+- import_playbook: 07.redis-ha.yml
+- import_playbook: 08.kafka.yml
+- import_playbook: 09.minio.yml
+- import_playbook: 10.apps.yml
+- import_playbook: 11.vibe.yml
+- import_playbook: 12.traefik.yml
+- import_playbook: 13.monitoring.yml
+- import_playbook: 14.security.yml
+- import_playbook: 15.verify.yml

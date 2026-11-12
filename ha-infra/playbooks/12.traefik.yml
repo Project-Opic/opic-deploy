@@ -1,0 +1,5 @@
+---
+# P6: 入口层 Traefik ×3 + 路由全量
+- hosts: traefik
+  roles:
+    - traefik

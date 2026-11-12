@@ -1,0 +1,71 @@
+---
+# Ganesha 角色任务（对应 runbook P1 + P2a + §二-15/16）
+- name: install nfsd kernel module auto-load
+  ansible.builtin.copy:
+    content: "nfsd\n"
+    dest: /etc/modules-load.d/nfs-ganesha.conf
+    mode: '0644'
+  register: modload
+
+- name: load nfsd module now
+  community.general.modprobe:
+    name: nfsd
+    state: present
+
+- name: extract Ganesha source
+  ansible.builtin.unarchive:
+    src: "{{ offline_dir }}/nfs-ganesha-{{ ganesha_version }}.tar.gz"
+    dest: "{{ ganesha_source_dir }}"
+    remote_src: true
+
+- name: extract ntirpc
+  ansible.builtin.unarchive:
+    src: "{{ offline_dir }}/ntirpc-{{ ganesha_ntirpc_version }}.tar.gz"
+    dest: "{{ ganesha_source_dir }}/nfs-ganesha-{{ ganesha_version }}/src/libntirpc"
+    remote_src: true
+
+- name: cmake and build Ganesha
+  ansible.builtin.shell: |
+    cd {{ ganesha_source_dir }}/nfs-ganesha-{{ ganesha_version }}/src
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DUSE_FSAL_VFS=ON -DUSE_FSAL_NFSV3=ON \
+          -DUSE_DBUS=ON -DUSE_RPC_RDMA=OFF \
+          -DBUILD_CONFIG=release \
+          -DCMAKE_INSTALL_PREFIX=/usr/local .
+    make -j$(nproc)
+    make install
+  args:
+    creates: /usr/local/bin/ganesha.nfsd
+
+- name: ldconfig
+  ansible.builtin.command: ldconfig
+  changed_when: false
+
+- name: render ganesha.conf
+  ansible.builtin.template:
+    src: ganesha.conf.j2
+    dest: /etc/ganesha/ganesha.conf
+    mode: '0644'
+  notify: restart ganesha
+
+- name: render ganesha systemd unit
+  ansible.builtin.template:
+    src: nfs-ganesha.service.j2
+    dest: /etc/systemd/system/nfs-ganesha.service
+    mode: '0644'
+  notify:
+    - daemon reload
+    - restart ganesha
+
+- name: ensure ganesha disabled (keepalived notify 拉起)
+  ansible.builtin.systemd:
+    name: nfs-ganesha
+    enabled: false
+    state: stopped
+  # ⚠ systemd start 由 keepalived notify-master 触发
+
+- name: create export directory
+  ansible.builtin.file:
+    path: "{{ ganesha_export_path }}"
+    state: directory
+    mode: '0755'

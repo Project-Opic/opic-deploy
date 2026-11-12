@@ -1,0 +1,8 @@
+---
+# P3c: Patroni + PG18 ×3（pigsty-node Debian12 容器）
+# 委托给 Pigsty ansible（admin 容器内 ansible-playbook deploy.yml）
+- hosts: pg_cluster
+  tasks:
+    - name: delegate to pigsty admin
+      ansible.builtin.debug:
+        msg: "Pigsty deploy.yml — run inside admin container"

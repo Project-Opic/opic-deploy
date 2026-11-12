@@ -1,0 +1,17 @@
+#!/bin/bash
+# chk-drbd.sh — keepalived track_script
+# 规则（§二-20）：备节点天生 Secondary/导出未挂/ganesha 未起 → 返 0
+# 只有 VIP 持有者才被审计：Primary + mountpoint + ganesha active
+VIP={{ keepalived_vip | regex_replace('/.*','') }}
+RES=nfsdata
+MNT={{ ganesha_export_path | default('/srv/nfs/harbor') }}
+
+# 非 VIP 持有者直接返 0（§二-20 的坑）
+ip -4 addr show dev {{ keepalived_interface }} | grep -q "inet $VIP/" || exit 0
+
+# 持有者审计：DRBD Primary + 挂载 + ganesha
+drbdadm status "$RES" 2>/dev/null | head -1 | grep -q 'role:Primary' || exit 1
+mountpoint -q "$MNT" || exit 1
+systemctl is-active --quiet nfs-ganesha || exit 1
+
+exit 0

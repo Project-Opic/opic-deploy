@@ -1,0 +1,22 @@
+# Redis 7 + Sentinel ×{{ redis_replicas | default(3) }}
+version: "3.8"
+services:
+  redis:
+    image: "redis:7-alpine"
+    container_name: redis-{{ ansible_hostname }}
+    network_mode: host
+    restart: unless-stopped
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - "{{ opic_ha_stack }}/redis/data:/data"
+      - "{{ opic_ha_stack }}/redis/redis.conf:/etc/redis/redis.conf:ro"
+  sentinel:
+    image: "redis:7-alpine"
+    container_name: sentinel-{{ ansible_hostname }}
+    network_mode: host
+    restart: unless-stopped
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - "{{ opic_ha_stack }}/redis/sentinel.conf:/etc/redis/sentinel.conf:ro"
+    depends_on:
+      - redis

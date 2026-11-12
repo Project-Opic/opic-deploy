@@ -1,0 +1,5 @@
+---
+# 阶段2-C: Kafka KRaft ×3 SCRAM-SHA-512
+- hosts: kafka_cluster
+  roles:
+    - kafka

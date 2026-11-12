@@ -1,0 +1,77 @@
+---
+- name: install keepalived
+  ansible.builtin.package:
+    name: keepalived
+    state: present
+
+- name: render chk-drbd.sh
+  ansible.builtin.template:
+    src: chk-drbd.sh.j2
+    dest: "{{ keepalived_chk_script }}"
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: render notify-master.sh
+  ansible.builtin.template:
+    src: notify-master.sh.j2
+    dest: "{{ keepalived_notify_master }}"
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: render notify-backup.sh
+  ansible.builtin.template:
+    src: notify-backup.sh.j2
+    dest: "{{ keepalived_notify_backup }}"
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: backup rpm default config
+  ansible.builtin.copy:
+    src: /etc/keepalived/keepalived.conf
+    dest: /etc/keepalived/keepalived.conf.bak-rpm
+    remote_src: true
+    force: false
+
+- name: render keepalived.conf (structure only — no auth_pass in file)
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: '0644'
+    owner: root
+    group: root
+  notify: restart keepalived
+
+- name: add ExecStop drop-in (notify-backup on stop)
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      ExecStop=
+      ExecStop=/bin/kill -s TERM $MAINPID
+      ExecStop=/opt/opic/ha/notify-backup.sh
+    dest: /etc/systemd/system/keepalived.service.d/opic-execstop.conf
+    mode: '0644'
+  notify:
+    - daemon reload
+    - restart keepalived
+
+- name: add mount ordering drop-in (opt-opic-harbor-data.mount After=keepalived)
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      After=keepalived.service
+    dest: /etc/systemd/system/opt-opic-harbor-data.mount.d/opic-ha-order.conf
+    mode: '0644'
+  notify: daemon reload
+
+- name: validate keepalived config
+  ansible.builtin.command: keepalived -t -f /etc/keepalived/keepalived.conf
+  changed_when: false
+
+- name: ensure keepalived enabled and started
+  ansible.builtin.systemd:
+    name: keepalived
+    enabled: true
+    state: started

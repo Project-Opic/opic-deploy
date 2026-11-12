@@ -1,0 +1,5 @@
+---
+# 安全: cfssl PKI + Kafka SCRAM + 凭据处置
+- hosts: harbor
+  roles:
+    - security

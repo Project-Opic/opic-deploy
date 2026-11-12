@@ -1,0 +1,5 @@
+---
+# P1+P2a: NFS-Ganesha 安装 + 导出（133/134 disabled）
+- hosts: ganesha
+  roles:
+    - ganesha

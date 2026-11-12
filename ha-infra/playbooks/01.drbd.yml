@@ -1,0 +1,5 @@
+---
+# P2a: DRBD 安装 + nfsdata 资源（133↔134 主备）
+- hosts: nfs_vip
+  roles:
+    - drbd
