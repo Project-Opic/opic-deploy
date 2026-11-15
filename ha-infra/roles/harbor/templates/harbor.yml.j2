@@ -1,26 +1,35 @@
-# Harbor v{{ harbor_version }} — external_database + external_redis
-hostname: registry.{{ opic_base_domain }}
-http:
-  port: {{ harbor_port }}
+# Harbor v{{ harbor_version }} — {{ 'standalone (internal db/redis)' if harbor_standalone | default(false) else 'external_database + external_redis' }}
+hostname: {{ harbor_hostname | default('registry.' + opic_base_domain) }}
+https:
+  port: {{ harbor_tls_port | default(18700) }}
+  certificate: {{ cert_output_dir }}/tls.pem
+  private_key: {{ cert_output_dir }}/tls-key.pem
 
 harbor_admin_password: "{{ harbor_admin_password }}"
 
+{% if harbor_standalone | default(false) | bool %}
 database:
-  host: {{ db_host | default('10.144.0.1') }}
+  password: "{{ db_pass | default('Harbor12345') }}"
+  ssl_mode: disable
+{% else %}
+database:
+  host: {{ db_host }}
   port: {{ db_port | default(5433) }}
   username: {{ db_user | default('harbor') }}
   password: "{{ db_pass }}"
   ssl_mode: disable
   max_idle_conns: 50
   max_open_conns: 100
+{% endif %}
 
 data_volume: {{ harbor_data_volume }}
 
 trivy:
   ignore_unfixed: false
-  skip_update: false
+  skip_update: {{ 'true' if harbor_standalone | default(false) | bool else 'false' }}
   offline_scan: false
 
+{% if not (harbor_standalone | default(false) | bool) %}
 external_redis:
   host: "{{ redis_host }}"
   port: {{ redis_port | default(6379) }}
@@ -29,5 +38,6 @@ external_redis:
   jobservice_db: 2
   trivy_db: 5
   timeout: 300
+{% endif %}
 
-external_url: https://registry.{{ opic_base_domain }}:{{ harbor_tls_port | default(18700) }}
+external_url: https://{{ harbor_hostname | default('registry.' + opic_base_domain) }}:{{ harbor_tls_port | default(18700) }}

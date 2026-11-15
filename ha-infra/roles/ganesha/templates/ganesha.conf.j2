@@ -1,7 +1,6 @@
 # Ganesha NFSv4 export — OPIC Harbor data
-NFS_Core_Param {
+NFS_CORE_PARAM {
     Protocols = {{ ganesha_protocols }};
-    NFS_Protocols = {{ ganesha_protocols }};
     Transports = {{ ganesha_transports }};
 }
 
@@ -28,5 +27,9 @@ EXPORT
 
 LOG {
     Default_Log_Level = EVENT;
-    Log Facility { file { path = "/var/log/ganesha.log"; } };
+    Facility {
+        name = FILE;
+        destination = "/var/log/ganesha.log";
+        enable = active;
+    }
 }

@@ -1,47 +1,119 @@
 ---
+# 安全角色：cfssl 安装 + 平台 CA（自签，仅首台生成一次）+ Harbor server 证书
+# CA 与证书首台签发 → fetch 回控制机 → 分发全组（三台 Harbor 共用同一张 *.opic-dev.ccoe.vip 证书）
+
 - name: install cfssl + cfssljson
   ansible.builtin.copy:
-    src: "{{ offline_dir }}/cfssl_1.7.1_linux_amd64"
-    dest: /usr/local/bin/cfssl
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
     mode: '0755'
+  loop:
+    - { src: "{{ offline_dir }}/cfssl_1.7.1_linux_amd64", dest: /usr/local/bin/cfssl }
+    - { src: "{{ offline_dir }}/cfssljson_1.7.1_linux_amd64", dest: /usr/local/bin/cfssljson }
 
-- name: install cfssljson
-  ansible.builtin.copy:
-    src: "{{ offline_dir }}/cfssljson_1.7.1_linux_amd64"
-    dest: /usr/local/bin/cfssljson
-    mode: '0755'
-
-- name: create cfssl-platform directory
+- name: create cfssl-platform directories
   ansible.builtin.file:
-    path: "{{ cert_platform_dir }}"
+    path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: '0700'
+  loop:
+    - "{{ cert_platform_dir }}"
+    - "{{ cert_platform_dir }}/ca"
+    - "{{ cert_platform_dir }}/csr"
+    - "{{ cert_output_dir }}"
 
-- name: verify CA exists
+- name: render ca-config.json
+  ansible.builtin.template:
+    src: ca-config.json.j2
+    dest: "{{ cert_platform_dir }}/ca-config.json"
+    mode: '0644'
+
+- name: render CA signing csr
+  ansible.builtin.template:
+    src: opic-ca-csr.json.j2
+    dest: "{{ cert_platform_dir }}/csr/opic-ca-csr.json"
+    mode: '0644'
+
+- name: render Harbor server csr (SANs from cert_san_hosts)
+  ansible.builtin.template:
+    src: opic-harbor-server-csr.json.j2
+    dest: "{{ cert_platform_dir }}/csr/opic-harbor-server-csr.json"
+    mode: '0644'
+
+# ── 仅首台生成 CA + server cert，然后分发 ──
+- name: check platform CA exists on leader
   ansible.builtin.stat:
     path: "{{ cert_platform_dir }}/ca/ca.pem"
   register: ca_stat
+  run_once: true
+  delegate_to: "{{ groups['harbor'][0] }}"
 
-- name: assert CA present
-  ansible.builtin.assert:
-    that: ca_stat.stat.exists
-    fail_msg: "平台 CA 不存在: {{ cert_platform_dir }}/ca/ca.pem"
+- name: generate platform CA (self-signed, 10y)
+  ansible.builtin.shell: |
+    set -e
+    cd {{ cert_platform_dir }}
+    cfssl gencert -initca csr/opic-ca-csr.json | cfssljson -bare ca/ca
+  run_once: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+  when: not ca_stat.stat.exists
 
-- name: generate Harbor server certificate
-  ansible.builtin.command: >
-    cfssl gencert
-    -ca {{ cert_platform_dir }}/ca/ca.pem
-    -ca-key {{ cert_platform_dir }}/ca/ca-key.pem
-    -config {{ cert_platform_dir }}/ca-config.json
-    -profile server
-    csr/opic-harbor-server-csr.json
-  register: cert_result
-  changed_when: true
-  no_log: true
+- name: issue Harbor server certificate
+  ansible.builtin.shell: |
+    set -e
+    cd {{ cert_platform_dir }}
+    cfssl gencert -ca ca/ca.pem -ca-key ca/ca-key.pem \
+      -config ca-config.json -profile server \
+      csr/opic-harbor-server-csr.json | cfssljson -bare {{ cert_output_dir }}/tls
+  run_once: true
+  delegate_to: "{{ groups['harbor'][0] }}"
 
-- name: install Harbor TLS cert + key
+- name: fetch CA + server cert to control machine
+  ansible.builtin.fetch:
+    src: "{{ cert_platform_dir }}/ca/ca.pem"
+    dest: "{{ playbook_dir }}/../files/pki/"
+    flat: true
+  run_once: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+
+- name: fetch server tls.pem
+  ansible.builtin.fetch:
+    src: "{{ cert_output_dir }}/tls.pem"
+    dest: "{{ playbook_dir }}/../files/pki/tls.pem"
+    flat: true
+  run_once: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+
+- name: fetch server tls-key.pem
+  ansible.builtin.fetch:
+    src: "{{ cert_output_dir }}/tls-key.pem"
+    dest: "{{ playbook_dir }}/../files/pki/tls-key.pem"
+    flat: true
+  run_once: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+
+- name: distribute ca.pem to all harbor nodes
   ansible.builtin.copy:
-    content: "{{ cert_result.json | to_json }}"
-    dest: "{{ cert_output_dir }}/"
+    src: "{{ playbook_dir }}/../files/pki/ca.pem"
+    dest: "{{ cert_platform_dir }}/ca/ca.pem"
+    mode: '0644'
+
+- name: distribute server cert to all harbor nodes
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/{{ item }}"
+    dest: "{{ cert_output_dir }}/{{ item }}"
     mode: '0600'
-  no_log: true
+  loop:
+    - tls.pem
+    - tls-key.pem
+
+# leader 上 fetch 时已存在，非 leader 补齐 ca-key 之外仅 ca.pem+cert —— ca-key 只留 leader
+- name: verify cert covers wildcard SAN
+  ansible.builtin.command: >
+    openssl x509 -in {{ cert_output_dir }}/tls.pem -noout -ext subjectAltName
+  register: san_check
+  changed_when: false
+
+- name: assert SAN sanity
+  ansible.builtin.assert:
+    that: "'*.' in san_check.stdout"
+    fail_msg: "server 证书缺少通配 SAN：{{ san_check.stdout }}"

@@ -1,0 +1,11 @@
+# Redis 7 — OPIC lab（每台一份，Sentinel 管理主从）
+bind {{ ansible_host }} 127.0.0.1
+port {{ port_map.redis }}
+protected-mode yes
+requirepass {{ redis_pass }}
+masterauth {{ redis_pass }}
+appendonly yes
+appendfsync everysec
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+dir /data

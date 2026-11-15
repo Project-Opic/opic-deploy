@@ -1,0 +1,4 @@
+---
+- name: docker compose up redis
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/redis/docker-compose.yml up -d
+  changed_when: true

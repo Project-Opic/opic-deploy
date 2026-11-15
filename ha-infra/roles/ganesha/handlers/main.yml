@@ -3,6 +3,12 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+- name: dbus restart
+  ansible.builtin.systemd:
+    name: dbus
+    state: reloaded
+  # SIGHUP 热加载 /etc/dbus-1/system.d 策略，避免重启 dbus 牵连其他服务
+
 - name: restart ganesha
   ansible.builtin.systemd:
     name: nfs-ganesha

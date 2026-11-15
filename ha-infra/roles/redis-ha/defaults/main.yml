@@ -1,0 +1,7 @@
+---
+# Redis-HA 角色默认值
+redis_replicas: 3
+redis_sentinel_master_set: "mymaster"
+redis_pass: ""
+redis_data_dir: "/data/redis"
+redis_image: "redis:7-alpine"

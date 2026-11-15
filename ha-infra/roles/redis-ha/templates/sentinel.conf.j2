@@ -1,0 +1,15 @@
+# Redis Sentinel — OPIC lab
+port {{ port_map.redis_sentinel }}
+bind {{ ansible_host }} 127.0.0.1
+protected-mode yes
+daemonize no
+
+sentinel resolve-hostnames yes
+sentinel announce-hostnames yes
+sentinel announce-ip {{ ansible_host }}
+sentinel monitor {{ redis_sentinel_master_set }} {{ hostvars[groups['redis_cluster'][0]]['ansible_host'] }} {{ port_map.redis }} 2
+sentinel down-after-milliseconds {{ redis_sentinel_master_set }} 5000
+sentinel failover-timeout {{ redis_sentinel_master_set }} 60000
+sentinel parallel-syncs {{ redis_sentinel_master_set }} 1
+sentinel auth-pass {{ redis_sentinel_master_set }} {{ redis_pass }}
+dir /data

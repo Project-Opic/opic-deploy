@@ -1,4 +1,30 @@
 ---
+- name: create redis stack directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ opic_ha_stack }}/redis"
+    - "{{ opic_ha_stack }}/redis/data"
+    - "{{ redis_data_dir }}"
+    - "{{ redis_data_dir }}/sentinel"
+
+- name: chown data dirs to container uid 999 (redis alpine)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: 999
+    group: 999
+    mode: '0755'
+  loop:
+    - "{{ redis_data_dir }}"
+    - "{{ redis_data_dir }}/sentinel"
+
+- name: pull redis image
+  community.docker.docker_image:
+    name: "{{ redis_image }}"
+    source: pull
+
 - name: render redis docker-compose.yml (Sentinel ×3)
   ansible.builtin.template:
     src: docker-compose-redis.yml.j2
@@ -10,14 +36,14 @@
   ansible.builtin.template:
     src: redis.conf.j2
     dest: "{{ opic_ha_stack }}/redis/redis.conf"
-    mode: '0640'
+    mode: '0644'  # alpine redis 以 uid 999 读，需 world-readable
   notify: docker compose up redis
 
 - name: render sentinel.conf
   ansible.builtin.template:
     src: sentinel.conf.j2
     dest: "{{ opic_ha_stack }}/redis/sentinel.conf"
-    mode: '0640'
+    mode: '0666'  # sentinel 会自写此文件（容器内 uid 999 需可写）
   notify: docker compose up redis
 
 - name: docker compose up

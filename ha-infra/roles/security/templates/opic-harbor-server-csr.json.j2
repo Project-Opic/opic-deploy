@@ -1,0 +1,13 @@
+{
+  "CN": "{{ harbor_hostname | default('registry.' + opic_base_domain) }}",
+  "hosts": [
+{% for h in cert_san_hosts %}
+    "{{ h }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ],
+  "key": { "algo": "rsa", "size": 2048 },
+  "names": [
+    { "C": "CN", "ST": "Zhejiang", "L": "Hangzhou", "O": "Project-Opic", "OU": "Harbor" }
+  ]
+}

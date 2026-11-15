@@ -2,21 +2,22 @@
 version: "3.8"
 services:
   redis:
-    image: "redis:7-alpine"
+    image: "{{ redis_image }}"
     container_name: redis-{{ ansible_hostname }}
     network_mode: host
     restart: unless-stopped
-    command: redis-server /etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - "{{ opic_ha_stack }}/redis/data:/data"
-      - "{{ opic_ha_stack }}/redis/redis.conf:/etc/redis/redis.conf:ro"
+      - "{{ redis_data_dir }}:/data"
+      - "{{ opic_ha_stack }}/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro"
   sentinel:
-    image: "redis:7-alpine"
+    image: "{{ redis_image }}"
     container_name: sentinel-{{ ansible_hostname }}
     network_mode: host
     restart: unless-stopped
-    command: redis-sentinel /etc/redis/sentinel.conf
+    command: redis-sentinel /usr/local/etc/redis/sentinel.conf
     volumes:
-      - "{{ opic_ha_stack }}/redis/sentinel.conf:/etc/redis/sentinel.conf:ro"
+      - "{{ redis_data_dir }}/sentinel:/data"
+      - "{{ opic_ha_stack }}/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf"
     depends_on:
       - redis

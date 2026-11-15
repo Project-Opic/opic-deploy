@@ -1,8 +1,8 @@
 # OPIC NFS-Ganesha — systemd unit（由 keepalived notify-master 拉起，本单元 enabled=off）
 [Unit]
 Description=NFS-Ganesha NFS server (OPIC HA NFS VIP)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target rpcbind.service
+Wants=network-online.target rpcbind.service
 
 [Service]
 Type=forking

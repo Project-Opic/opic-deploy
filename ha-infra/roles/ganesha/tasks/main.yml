@@ -12,6 +12,12 @@
     name: nfsd
     state: present
 
+- name: ensure rpcbind enabled+started (ganesha port registration depends on it)
+  ansible.builtin.systemd:
+    name: rpcbind
+    enabled: true
+    state: started
+
 - name: install Ganesha build dependencies (al8/Anolis)
   ansible.builtin.package:
     name:
@@ -31,6 +37,9 @@
       - openssl-devel
       - libnfsidmap-devel
       - dbus-glib-devel
+      - libacl-devel
+      - userspace-rcu-devel
+      - keyutils-libs-devel
     state: present
 
 - name: create Ganesha source/build directory
@@ -75,18 +84,60 @@
   ansible.builtin.shell: |
     cd {{ ganesha_source_dir }}/nfs-ganesha-{{ ganesha_version }}/src
     cmake -DCMAKE_BUILD_TYPE=Release \
-          -DUSE_FSAL_VFS=ON -DUSE_FSAL_NFSV3=ON \
+          -DUSE_FSAL_VFS=ON \
           -DUSE_DBUS=ON -DUSE_RPC_RDMA=OFF \
-          -DBUILD_CONFIG=release \
+          -DUSE_MONITORING=OFF \
+          -DBUILD_CONFIG=rpmbuild \
           -DCMAKE_INSTALL_PREFIX=/usr/local .
     make -j$(nproc)
     make install
   args:
     creates: /usr/local/bin/ganesha.nfsd
 
+- name: register /usr/local/lib64 in ld path (libganesha_nfsd.so lives there)
+  ansible.builtin.copy:
+    content: "/usr/local/lib64\n"
+    dest: /etc/ld.so.conf.d/ganesha.conf
+    mode: '0644'
+
 - name: ldconfig
   ansible.builtin.command: ldconfig
   changed_when: false
+
+- name: create /etc/ganesha directory
+  ansible.builtin.file:
+    path: /etc/ganesha
+    state: directory
+    mode: '0755'
+
+- name: create ganesha pid dir (default /usr/local/var/run/ganesha)
+  ansible.builtin.file:
+    path: /usr/local/var/run/ganesha
+    state: directory
+    mode: '0755'
+
+- name: create ganesha nfs4 recovery dir
+  ansible.builtin.file:
+    path: /usr/local/var/lib/nfs/ganesha
+    state: directory
+    mode: '0755'
+
+- name: install dbus system policy for org.ganesha.nfsd
+  ansible.builtin.copy:
+    dest: /etc/dbus-1/system.d/org.ganesha.nfsd.conf
+    mode: '0644'
+    content: |
+      <!DOCTYPE busconfig PUBLIC
+       "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+       "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+      <busconfig>
+        <policy context="default">
+          <allow own="org.ganesha.nfsd"/>
+          <allow send_destination="org.ganesha.nfsd"/>
+          <allow receive_sender="org.ganesha.nfsd"/>
+        </policy>
+      </busconfig>
+  notify: dbus restart
 
 - name: render ganesha.conf
   ansible.builtin.template:

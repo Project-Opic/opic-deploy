@@ -68,7 +68,7 @@ port_map:
 opic_base_domain: opic-dev.ccoe.vip
 opic_harbor_data: /opt/opic/harbor/data
 opic_ha_stack: /opt/opic/ha-stack
-opic_nfs_vip: 10.26.8.3
+opic_nfs_vip: 10.26.200.1   # 独立 VIP 网段（nebula unsafeNetworks=10.26.200.0/29）
 opic_nfs_export: /srv/nfs/harbor
 opic_nfs_mount_opts: vers=4.2,hard,noatime,rsize=1048576,wsize=1048576,proto=tcp,timeo=600,retrans=2
 
@@ -97,7 +97,7 @@ ganesha_clients_cidr: "10.26.8.0/24"
 # ── Keepalived ──
 keepalived_vrid: 201
 keepalived_interface: "nebula1"      # nebula 覆盖网（实测 proto112 可通）
-keepalived_vip: "10.26.8.3/24"
+keepalived_vip: "10.26.200.1/29"
 keepalived_priority_master: 150
 keepalived_priority_backup: 100
 keepalived_state: "BACKUP"
@@ -126,6 +126,7 @@ cert_san_hosts:
   - "registry.opic-dev.ccoe.vip"
   - "*.opic-dev.ccoe.vip"
   - "10.26.8.3"
+  - "10.26.200.1"
   - "10.26.8.157"
   - "10.26.8.158"
   - "10.26.8.159"
@@ -169,3 +170,17 @@ required_ports: [443, 18701, 5433, 6379, 2479, 9092, 9000, 8000, 8080, 3000, 723
 
 # ── 代理：目标机直连外网（实测 github 200），清空 role 默认代理 ──
 proxy_env: {}
+
+# ── Redis / Kafka / MinIO（lab 口令）──
+redis_pass: "opicRedis2026Lab"
+redis_sentinel_master_set: "mymaster"
+redis_replicas: 3
+redis_data_dir: "/data/redis"
+kafka_seq: 0
+kafka_replicas: 3
+kafka_admin_password: "opicKafka2026Scram"
+kafka_image: "apache/kafka:3.7.1"
+kafka_data_dir: "/data/kafka"
+minio_root_user: "opicadmin"
+minio_root_password: "OpicMinio2026Lab"
+minio_image: "minio/minio:RELEASE.2024-10-13T13-34-11Z"

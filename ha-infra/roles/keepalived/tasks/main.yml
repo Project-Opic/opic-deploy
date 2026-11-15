@@ -4,6 +4,14 @@
     name: keepalived
     state: present
 
+- name: create /opt/opic/ha script directory
+  ansible.builtin.file:
+    path: /opt/opic/ha
+    state: directory
+    mode: '0750'
+    owner: root
+    group: root
+
 - name: render chk-drbd.sh
   ansible.builtin.template:
     src: chk-drbd.sh.j2
@@ -43,6 +51,15 @@
     owner: root
     group: root
   notify: restart keepalived
+
+- name: create systemd drop-in directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/systemd/system/keepalived.service.d
+    - /etc/systemd/system/opt-opic-harbor-data.mount.d
 
 - name: add ExecStop drop-in (notify-backup on stop)
   ansible.builtin.copy:

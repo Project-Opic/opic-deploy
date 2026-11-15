@@ -2,6 +2,11 @@
 # 结构 only：不包含 authentication 块（auth_form_lines=0 实测）
 # state BACKUP + nopreempt = 手工回切语义（两台同等，高优先不抢占）
 
+global_defs {
+    enable_script_security
+    script_user root
+}
+
 vrrp_script chk_drbd {
     script "{{ keepalived_chk_script }}"
     interval {{ keepalived_chk_interval }}
