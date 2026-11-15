@@ -36,6 +36,12 @@
     mode: '0644'
   notify: restart traefik
 
+- name: render dynamic vibe route
+  ansible.builtin.template:
+    src: vibe.yml.j2
+    dest: /etc/traefik/dynamic/vibe.yml
+    mode: '0644'
+
 - name: copy tls cert and key from cert_output dir
   ansible.builtin.copy:
     src: "{{ cert_output_dir }}/{{ item }}"

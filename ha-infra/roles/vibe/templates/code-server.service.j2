@@ -1,0 +1,15 @@
+[Unit]
+Description=OPIC VIBE (code-server)
+After=network-online.target fs.mount
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/code-server {{ vibe_workspace }} --bind-addr 0.0.0.0:{{ vibe_port }} --auth password
+Environment=CODE_SERVER_PASSWORD={{ vibe_auth_password }}
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

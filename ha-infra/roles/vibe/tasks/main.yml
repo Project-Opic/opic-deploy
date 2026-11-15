@@ -1,9 +1,44 @@
 ---
-- name: render vibe docker-compose.yml (code-server :8443, workspace /fs)
-  ansible.builtin.template:
-    src: docker-compose-vibe.yml.j2
-    dest: "{{ opic_ha_stack }}/vibe/docker-compose.yml"
+# VIBE = code-server 二进制 + systemd（原 compose 模板路线废弃；目标机直连 GitHub）
+- name: create vibe install dir
+  ansible.builtin.file:
+    path: "{{ vibe_install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: stat code-server binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/code-server
+  register: cs_bin
+
+- name: download code-server tarball (target machine direct github)
+  ansible.builtin.get_url:
+    url: "https://github.com/coder/code-server/releases/download/v{{ vibe_version }}/code-server-{{ vibe_version }}-linux-amd64.tar.gz"
+    dest: "{{ vibe_install_dir }}/code-server-{{ vibe_version }}-linux-amd64.tar.gz"
     mode: '0644'
+    timeout: 600
+  when: not cs_bin.stat.exists
+
+- name: extract code-server
+  ansible.builtin.unarchive:
+    src: "{{ vibe_install_dir }}/code-server-{{ vibe_version }}-linux-amd64.tar.gz"
+    dest: "{{ vibe_install_dir }}"
+    remote_src: true
+    creates: "{{ vibe_install_dir }}/code-server-{{ vibe_version }}-linux-amd64/bin/code-server"
+  when: not cs_bin.stat.exists
+
+- name: symlink code-server binary
+  ansible.builtin.file:
+    src: "{{ vibe_install_dir }}/code-server-{{ vibe_version }}-linux-amd64/bin/code-server"
+    dest: /usr/local/bin/code-server
+    state: link
+    force: true
+
+- name: ensure vibe workspace subdir on NFS (via harbor data mount)
+  ansible.builtin.file:
+    path: "{{ opic_harbor_data }}/vibe"
+    state: directory
+    mode: '0777'
 
 - name: ensure /fs mount (systemd fs.mount)
   ansible.builtin.copy:
@@ -12,27 +47,54 @@
       Description=OPIC VIBE shared workspace
       After=network-online.target
       [Mount]
-      What={{ opic_nfs_vip }}:/srv/nfs/harbor/vibe
-      Where=/fs
-      Type=nfs
+      What={{ opic_nfs_vip }}:{{ opic_nfs_export }}/vibe
+      Where={{ vibe_workspace }}
+      Type=nfs4
       Options=vers=4.2,hard,noatime
       [Install]
       WantedBy=multi-user.target
     dest: /etc/systemd/system/fs.mount
     mode: '0644'
-  notify: daemon reload
+  notify:
+    - daemon reload
+    - systemd mount reload
+
+- name: flush handlers before mount
+  meta: flush_handlers
 
 - name: ensure fs.mount enabled and started
   ansible.builtin.systemd:
     name: fs.mount
     enabled: true
     state: started
+    daemon_reload: true
 
-- name: ensure code-server.service enabled
+- name: render code-server.service
+  ansible.builtin.template:
+    src: code-server.service.j2
+    dest: /etc/systemd/system/code-server.service
+    mode: '0644'
+  notify:
+    - daemon reload
+    - restart code-server
+
+- name: ensure code-server enabled and started
   ansible.builtin.systemd:
     name: code-server
     enabled: true
+    state: started
+    daemon_reload: true
 
-- name: docker compose up vibe
-  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/vibe/docker-compose.yml up -d
-  changed_when: true
+- name: wait code-server port
+  ansible.builtin.wait_for:
+    port: "{{ vibe_port }}"
+    timeout: 60
+
+- name: vibe http check
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ vibe_port }}/login"
+    status_code: [200, 302]
+  register: vibe_health
+  retries: 10
+  delay: 3
+  until: vibe_health.status in [200, 302]

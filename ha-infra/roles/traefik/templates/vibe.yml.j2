@@ -1,0 +1,21 @@
+# VIBE route — vibe.<domain> :443 → vibe group 节点 code-server :8443
+http:
+  routers:
+    vibe:
+      rule: "Host(`vibe.{{ opic_base_domain }}`)"
+      entryPoints: [websecure]
+      service: vibe-svc
+      tls: {}
+  services:
+    vibe-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+{% for h in groups['vibe'] %}
+          - url: "http://{{ hostvars[h].ansible_host }}:{{ hostvars[h].vibe_port | default(8443) }}"
+{% endfor %}
+        healthCheck:
+          path: /login
+          method: GET
+          interval: 10s
+          timeout: 5s

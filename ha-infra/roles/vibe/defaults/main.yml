@@ -1,0 +1,7 @@
+---
+# VIBE = code-server（浏览器版 VS Code），lab 单实例 @ vibe group（ali157）
+vibe_version: "4.145.2"
+vibe_install_dir: "/opt/opic/ha-stack/vibe"
+vibe_port: 8443
+vibe_auth_password: "OpicVibe2026Lab"
+vibe_workspace: "/fs"
