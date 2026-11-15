@@ -1,5 +1,5 @@
 ---
-# Kafka KRaft combined ×3（compose + systemd unit via systemd 管理 docker compose 不必要——compose restart 策略即可）
+# Kafka KRaft combined ×3（apache/kafka 官方镜像 + docker compose + systemd unit）
 - name: create kafka dirs
   ansible.builtin.file:
     path: "{{ item }}"
@@ -9,60 +9,103 @@
     - "{{ kafka_dir }}"
     - "{{ kafka_dir }}/data"
 
+- name: kafka data dir owned by container uid 1000
+  ansible.builtin.file:
+    path: "{{ kafka_dir }}/data"
+    owner: 1000
+    group: 1000
+    mode: '0755'
+    recurse: true
+
 - name: render docker-compose.yml (KRaft combined ×3, SCRAM client listener)
   ansible.builtin.template:
     src: docker-compose-kafka.yml.j2
     dest: "{{ kafka_dir }}/docker-compose.yml"
     mode: '0644'
-  notify: docker compose up kafka
 
-- name: pull kafka image
-  ansible.builtin.command: docker pull {{ kafka_image }}
-  register: kafka_pull
-  changed_when: "'Downloaded newer image' in kafka_pull.stdout or 'Image is up to date' in kafka_pull.stdout"
-  retries: 3
-  delay: 15
+- name: render kafka_server_jaas.conf (0644, container runs as uid 1000)
+  ansible.builtin.template:
+    src: kafka_server_jaas.conf.j2
+    dest: "{{ kafka_dir }}/kafka_server_jaas.conf"
+    mode: '0644'
+  no_log: true
 
-- name: ensure kafka compose up
+- name: render kafka systemd unit (docker compose wrapper)
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=OPIC Kafka KRaft (docker compose)
+      After=network-online.target docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory={{ kafka_dir }}
+      ExecStart=/usr/bin/docker compose -f {{ kafka_dir }}/docker-compose.yml up -d
+      ExecStop=/usr/bin/docker compose -f {{ kafka_dir }}/docker-compose.yml down
+      TimeoutStartSec=600
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/opic-kafka.service
+    mode: '0644'
+
+- name: daemon reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: ensure opic-kafka enabled (boot persistence)
+  ansible.builtin.systemd:
+    name: opic-kafka
+    enabled: true
+    masked: false
+
+- name: compose up (recreates on config change)
   ansible.builtin.command: docker compose -f {{ kafka_dir }}/docker-compose.yml up -d
-  changed_when: true
+  register: kup
+  changed_when: "'Started' in kup.stderr or 'Created' in kup.stderr or 'Recreated' in kup.stderr"
+  retries: 3
+  delay: 20
 
 - name: wait kafka interbroker port
   ansible.builtin.wait_for:
     port: "{{ kafka_interbroker_port }}"
-    timeout: 120
+    timeout: 240
 
-# 集群形成后（run_once 在首台）创建 SCRAM 用户
+# 集群形成后在首台创建 SCRAM 用户（经 interbroker PLAINTEXT）
 - name: create SCRAM user opic-admin
   ansible.builtin.shell: |
-    docker exec kafka-{{ hostvars[groups['kafka_cluster'][0]].ansible_hostname }} \
-      /opt/kafka/bin/kafka-configs.sh --bootstrap-server {{ groups['kafka_cluster'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^', '') | join(':' ~ kafka_client_port ~ ',') }}:{{ kafka_client_port }} \
+    docker exec kafka-{{ ansible_hostname }} \
+      /opt/kafka/bin/kafka-configs.sh \
+      --bootstrap-server 127.0.0.1:{{ kafka_interbroker_port }} \
       --alter --add-config 'SCRAM-SHA-512=[iterations=8192,password={{ kafka_admin_password }}]' \
       --entity-type users --entity-name {{ kafka_scram_user }}
-  register: scram_create
   changed_when: true
-  failed_when: false
   no_log: true
   run_once: true
-  retries: 10
+  delegate_to: "{{ groups['kafka_cluster'][0] }}"
+  retries: 12
   delay: 10
-  until: scram_create.rc == 0
 
-- name: verify topic create/delete via SCRAM
+- name: verify topic create via interbroker PLAINTEXT
   ansible.builtin.shell: |
     set -e
-    docker exec {{ groups['kafka_cluster'] | map('extract', hostvars, 'ansible_hostname') | first | regex_replace('^ali', 'kafka-') }} \
+    docker exec kafka-{{ ansible_hostname }} \
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:{{ kafka_interbroker_port }} \
-      --create --topic opic-smoke --partitions 3 --replication-factor 3
-    docker exec kafka-{{ groups['kafka_cluster'] | map('extract', hostvars, 'ansible_hostname') | first }} \
+      --create --topic opic-smoke --partitions 3 --replication-factor 3 2>/dev/null || true
+    docker exec kafka-{{ ansible_hostname }} \
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:{{ kafka_interbroker_port }} --describe --topic opic-smoke
   register: topic_ok
   changed_when: true
   run_once: true
+  delegate_to: "{{ groups['kafka_cluster'][0] }}"
 
 - name: assert replication 3
   ansible.builtin.assert:
-    that: "(topic_ok.stdout | regex_findall('broker:')). | length >= 3"
+    that:
+      - "'opic-smoke' in topic_ok.stdout"
+      - "(topic_ok.stdout | regex_findall('Replicas: \\d+,\\d+,\\d+')) | length >= 3"
     fail_msg: "opic-smoke not replicated to 3 brokers"
     success_msg: "Kafka KRaft ×3 up, opic-smoke RF=3"
   run_once: true

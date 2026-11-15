@@ -8,7 +8,7 @@ services:
     network_mode: host
     restart: unless-stopped
     environment:
-      KAFKA_NODE_ID: "{{ (groups['kafka_cluster'] | index(inventory_hostname)) + 1 }}"
+      KAFKA_NODE_ID: "{{ groups['kafka_cluster'].index(inventory_hostname) + 1 }}"
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_LISTENERS: "SASL_PLAINTEXT://0.0.0.0:{{ kafka_client_port }},PLAINTEXT://0.0.0.0:{{ kafka_interbroker_port }},CONTROLLER://0.0.0.0:{{ kafka_controller_port }}"
       KAFKA_ADVERTISED_LISTENERS: "SASL_PLAINTEXT://{{ ansible_host }}:{{ kafka_client_port }},PLAINTEXT://{{ ansible_host }}:{{ kafka_interbroker_port }}"
@@ -16,7 +16,7 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_SASL_ENABLED_MECHANISMS: "SCRAM-SHA-512"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "{% for h in groups['kafka_cluster'] %}{{ (groups['kafka_cluster'] | index(h)) + 1 }}@{{ hostvars[h].ansible_host }}:{{ kafka_controller_port }}{% if not loop.last %},{% endif %}{% endfor %}"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "{% for h in groups['kafka_cluster'] %}{{ groups['kafka_cluster'].index(h) + 1 }}@{{ hostvars[h].ansible_host }}:{{ kafka_controller_port }}{% if not loop.last %},{% endif %}{% endfor %}"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
@@ -24,6 +24,8 @@ services:
       KAFKA_MIN_INSYNC_REPLICAS: "2"
       KAFKA_LOG_DIRS: "/var/kafka-logs"
       KAFKA_HEAP_OPTS: "-Xmx1g -Xms1g"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf"
       CLUSTER_ID: "{{ kafka_cluster_id }}"
     volumes:
       - "{{ kafka_dir }}/data:/var/kafka-logs"
+      - "{{ kafka_dir }}/kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf:ro"
