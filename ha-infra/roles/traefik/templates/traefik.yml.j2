@@ -19,12 +19,10 @@ log:
   level: INFO
 
 tls:
-  certificates:
-    - certFile: /etc/traefik/tls/tls.pem
-      keyFile: /etc/traefik/tls/tls-key.pem
   options:
     default:
       minVersion: VersionTLS12
+# 注意：v3 静态配置 tls: 只支持 options；证书必须放 dynamic/ 目录（见 dynamic tls.yml）
 
 serversTransport:
   rootCAs:

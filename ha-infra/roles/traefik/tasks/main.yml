@@ -29,6 +29,13 @@
     dest: /etc/traefik/dynamic/harbor.yml
     mode: '0644'
 
+- name: render dynamic tls store cert (v3 static tls does not support certificates)
+  ansible.builtin.template:
+    src: tls-dynamic.yml.j2
+    dest: /etc/traefik/dynamic/tls.yml
+    mode: '0644'
+  notify: restart traefik
+
 - name: copy tls cert and key from cert_output dir
   ansible.builtin.copy:
     src: "{{ cert_output_dir }}/{{ item }}"
