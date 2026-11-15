@@ -1,0 +1,9 @@
+---
+ganesha_version: "15.7"
+ganesha_export_path: "/srv/nfs/harbor"
+ganesha_export_id: 77
+ganesha_source_dir: "/opt/opic/build/nfs-ganesha"
+ganesha_modules_load: true
+ganesha_mnt_path: "/fs"
+ganesha_mnt_src: "55.32.170.3:/srv/nfs/harbor/vibe"
+ganesha_mnt_opts: "vers=4.2,hard,noatime,rsize=1048576,wsize=1048576"

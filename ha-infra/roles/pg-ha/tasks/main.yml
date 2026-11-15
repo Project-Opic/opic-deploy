@@ -1,0 +1,60 @@
+---
+# pg-ha 角色：Pigsty 容器编排前置 + deploy.yml 委托
+# pg 容器本身由 Pigsty 管理；本角色做 pigsty-node 镜像构建与容器启动
+
+- name: create pigsty directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ pigsty_home }}"
+    - "{{ pigsty_docker_data }}"
+    - "{{ opic_ha_stack }}/pigsty"
+
+- name: copy pigsty release tarball
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/pigsty-{{ pigsty_version }}.tgz"
+    dest: "{{ pigsty_home }}/"
+    mode: '0644'
+
+- name: extract pigsty
+  ansible.builtin.unarchive:
+    src: "{{ pigsty_home }}/pigsty-{{ pigsty_version }}.tgz"
+    dest: "{{ pigsty_home }}"
+    remote_src: true
+
+- name: build pigsty-node:12 Docker image
+  community.docker.docker_image_build:
+    path: "{{ opic_ha_stack }}/pigsty-node"
+    name: "{{ pigsty_node_image }}"
+    push: false
+  # Dockerfile 基于 Debian:12 + systemd + pigsty deps
+
+- name: start pigsty pg container
+  community.docker.docker_container:
+    name: "pigsty-pg-{{ ansible_hostname }}"
+    image: "{{ pigsty_node_image }}"
+    state: started
+    restart_policy: unless-stopped
+    privileged: true
+    cgroupns_mode: host
+    network_mode: host
+    volumes:
+      - "{{ pigsty_home }}:/data/pigsty"
+      - "{{ pigsty_docker_data }}:/data/docker"
+      - "/opt/opic/ha-stack/pigsty:/opt/opic/ha-stack/pigsty"
+    tmpfs:
+      - "/run:exec,512m"
+      - "/run/lock"
+      - "/tmp:exec"
+  register: pg_container
+
+- name: wait for container systemd running
+  ansible.builtin.command: >
+    docker exec pigsty-pg-{{ ansible_hostname }} systemctl is-system-running
+  register: sysstate
+  changed_when: false
+  retries: 30
+  delay: 3
+  until: "'running' in sysstate.stdout or 'degraded' in sysstate.stdout"

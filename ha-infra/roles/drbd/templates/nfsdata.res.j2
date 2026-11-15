@@ -1,0 +1,21 @@
+resource {{ drbd_resource }} {
+    protocol {{ drbd_protocol }};
+{% if drbd_resync_rate is defined and drbd_resync_rate %}
+    disk {
+        resync-rate {{ drbd_resync_rate }};
+        c-plan-ahead {{ drbd_c_plan_ahead | default(0) }};
+    }
+{% endif %}
+    on {{ ansible_hostname | default('ita-m2') }} {
+        device {{ drbd_device }} minor 0;
+        disk {{ drbd_disk }};
+        meta-disk {{ drbd_meta_disk }};
+        address {{ ansible_default_ipv4.address | default('55.32.170.133') }}:7789;
+    }
+    on {{ peer_hostname | default('ita-m3') }} {
+        device {{ drbd_device }} minor 0;
+        disk {{ peer_disk }};
+        meta-disk {{ drbd_meta_disk }};
+        address {{ peer_address | default('55.32.170.134') }}:7789;
+    }
+}

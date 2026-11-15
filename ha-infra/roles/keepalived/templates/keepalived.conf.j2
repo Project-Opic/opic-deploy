@@ -1,0 +1,39 @@
+# OPIC HA NFS VIP — keepalived vrid {{ keepalived_vrid }}
+# 结构 only：不包含 authentication 块（auth_form_lines=0 实测）
+# state BACKUP + nopreempt = 手工回切语义（两台同等，高优先不抢占）
+
+vrrp_script chk_drbd {
+    script "{{ keepalived_chk_script }}"
+    interval {{ keepalived_chk_interval }}
+    timeout {{ keepalived_chk_timeout }}
+    fall {{ keepalived_chk_fall }}
+    rise {{ keepalived_chk_rise }}
+}
+
+vrrp_instance NFS_HA {
+    state {{ keepalived_state }}
+    interface {{ keepalived_interface }}
+    virtual_router_id {{ keepalived_vrid }}
+    priority {{ keepalived_priority }}
+    advert_int {{ keepalived_advert_int }}
+    nopreempt
+
+    unicast_src_ip {{ keepalived_unicast_src_ip }}
+    unicast_peer {
+{% for peer in keepalived_unicast_peer %}
+        {{ peer }}
+{% endfor %}
+    }
+
+    virtual_ipaddress {
+        {{ keepalived_vip }}
+    }
+
+    track_script {
+        chk_drbd
+    }
+
+    notify_master "{{ keepalived_notify_master }}"
+    notify_backup "{{ keepalived_notify_backup }}"
+    notify_fault  "{{ keepalived_notify_fault }}"
+}

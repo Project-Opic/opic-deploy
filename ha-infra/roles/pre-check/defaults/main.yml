@@ -1,0 +1,25 @@
+---
+# pre-check 角色默认值
+# 对应 runbook H0（主机前置核查）
+drbd_kernel_check: true
+ntp_server_expected: true
+disk_min_size_gb: 100
+required_ports:
+  - 443
+  - 18701
+  - 5433
+  - 6379
+  - 2479
+  - 9092
+  - 9000
+  - 8000
+  - 8080
+  - 3000
+  - 7233
+  - 4222
+  - 8008
+min_free_memory_gb: 200
+min_cpu_count: 40
+proxy_env:
+  http_proxy: "http://99.13.186.254:80"
+  https_proxy: "http://99.13.186.254:80"

@@ -1,0 +1,35 @@
+---
+- name: render opic-traefik docker-compose.yml ×3
+  ansible.builtin.template:
+    src: docker-compose-traefik.yml.j2
+    dest: "{{ opic_ha_stack }}/traefik/docker-compose.yml"
+    mode: '0644'
+  notify: restart opic-traefik
+
+- name: copy Traefik static config
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ opic_ha_stack }}/traefik/traefik.yml"
+    mode: '0644'
+  notify: restart opic-traefik
+
+- name: copy Harbor route file (file provider)
+  ansible.builtin.template:
+    src: harbor.yml.j2
+    dest: "{{ opic_ha_stack }}/traefik/dynamic/harbor.yml"
+    mode: '0644'
+  notify: restart opic-traefik
+
+- name: ensure traefik started
+  ansible.builtin.systemd:
+    name: opic-traefik
+    enabled: true
+    state: started
+
+- name: wait for traefik healthy
+  ansible.builtin.command: docker inspect -f '{{ '{{' }}.State.Health.Status{{ '}}' }}' opic-traefik
+  register: health
+  changed_when: false
+  retries: 20
+  delay: 3
+  until: health.stdout == 'healthy'

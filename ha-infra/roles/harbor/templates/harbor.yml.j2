@@ -1,0 +1,33 @@
+# Harbor v{{ harbor_version }} — external_database + external_redis
+hostname: registry.{{ opic_base_domain }}
+http:
+  port: {{ harbor_port }}
+
+harbor_admin_password: "{{ harbor_admin_password }}"
+
+database:
+  host: {{ db_host | default('10.144.0.1') }}
+  port: {{ db_port | default(5433) }}
+  username: {{ db_user | default('harbor') }}
+  password: "{{ db_pass }}"
+  ssl_mode: disable
+  max_idle_conns: 50
+  max_open_conns: 100
+
+data_volume: {{ harbor_data_volume }}
+
+trivy:
+  ignore_unfixed: false
+  skip_update: false
+  offline_scan: false
+
+external_redis:
+  host: "{{ redis_host }}"
+  port: {{ redis_port | default(6379) }}
+  password: "{{ redis_pass }}"
+  registry_db: 1
+  jobservice_db: 2
+  trivy_db: 5
+  timeout: 300
+
+external_url: https://registry.{{ opic_base_domain }}:{{ harbor_tls_port | default(18700) }}

@@ -13,6 +13,8 @@ if [[ -f "${ROOT_DIR}/.env" ]]; then
 fi
 
 PORT="${HARBOR_HTTP_PORT:-18700}"
+ENTRY_URL="${HARBOR_EXTERNAL_URL:-http://${HARBOR_HOSTNAME:-<host>}:${PORT}}"
+case "${ENTRY_URL}" in *://*) ;; *) ENTRY_URL="http://${ENTRY_URL}" ;; esac
 
 echo "── 校验 Harbor（镜像仓库）───────────────────────────────────────────────"
 
@@ -32,7 +34,13 @@ done
 
 echo
 echo "── 接入信息 ────────────────────────────────────────────────────────────"
-echo "  入口       : http://${HARBOR_HOSTNAME:-<host>}:${PORT}"
+echo "  对外入口   : ${ENTRY_URL}"
+echo "  本机健康   : http://127.0.0.1:${PORT}/api/v2.0/health（排障用，勿作对外地址）"
 echo "  管理员     : admin（口令见 .env 的 HARBOR_ADMIN_PASSWORD）"
-echo "  Docker 客户端: 需将 http://${HARBOR_HOSTNAME:-<host>}:${PORT} 加入"
-echo "               /etc/docker/daemon.json 的 insecure-registries（DEV 无 TLS）"
+if [[ "${ENTRY_URL}" == https://* ]]; then
+  echo "  Docker 客户端: 信任签发该入口的平台根 CA ——"
+  echo "               放 /etc/docker/certs.d/${HARBOR_HOSTNAME:-<host>}/ca.crt（TLS 在统一入口终止）"
+else
+  echo "  Docker 客户端: 需将 ${ENTRY_URL} 加入"
+  echo "               /etc/docker/daemon.json 的 insecure-registries（DEV 无 TLS）"
+fi

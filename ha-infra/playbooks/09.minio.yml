@@ -1,0 +1,5 @@
+---
+# 阶段2-E: MinIO 6盘 EC:3 ×3
+- hosts: minio_cluster
+  roles:
+    - minio

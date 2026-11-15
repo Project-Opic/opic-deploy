@@ -12,10 +12,13 @@ if [[ -f "${ROOT_DIR}/.env" ]]; then
   source "${ROOT_DIR}/.env"; set +a
 fi
 
+# 口令走 REDISCLI_AUTH 环境变量继承，不进 argv（argv 里的值同机任何用户 ps 可见，也会进 shell history）
+export REDISCLI_AUTH="${REDIS_PASSWORD:-}"
+
 echo "── 校验 Redis ───────────────────────────────────────────────────────────"
 
 for i in $(seq 1 30); do
-  if docker exec opic-redis redis-cli --no-auth-warning -a "${REDIS_PASSWORD}" ping 2>/dev/null | grep -q PONG; then
+  if docker exec -e REDISCLI_AUTH opic-redis redis-cli --no-auth-warning ping 2>/dev/null | grep -q PONG; then
     echo "  [OK] PING → PONG（鉴权生效）"
     break
   fi
@@ -26,7 +29,7 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-AOF="$(docker exec opic-redis redis-cli --no-auth-warning -a "${REDIS_PASSWORD}" config get appendonly 2>/dev/null | tail -1)"
+AOF="$(docker exec -e REDISCLI_AUTH opic-redis redis-cli --no-auth-warning config get appendonly 2>/dev/null | tail -1)"
 if [[ "${AOF}" == "yes" ]]; then
   echo "  [OK] AOF 持久化已启用"
 else

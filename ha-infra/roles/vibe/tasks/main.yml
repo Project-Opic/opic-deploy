@@ -1,0 +1,38 @@
+---
+- name: render vibe docker-compose.yml (code-server :8443, workspace /fs)
+  ansible.builtin.template:
+    src: docker-compose-vibe.yml.j2
+    dest: "{{ opic_ha_stack }}/vibe/docker-compose.yml"
+    mode: '0644'
+
+- name: ensure /fs mount (systemd fs.mount)
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=OPIC VIBE shared workspace
+      After=network-online.target
+      [Mount]
+      What={{ opic_nfs_vip }}:/srv/nfs/harbor/vibe
+      Where=/fs
+      Type=nfs
+      Options=vers=4.2,hard,noatime
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/fs.mount
+    mode: '0644'
+  notify: daemon reload
+
+- name: ensure fs.mount enabled and started
+  ansible.builtin.systemd:
+    name: fs.mount
+    enabled: true
+    state: started
+
+- name: ensure code-server.service enabled
+  ansible.builtin.systemd:
+    name: code-server
+    enabled: true
+
+- name: docker compose up vibe
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/vibe/docker-compose.yml up -d
+  changed_when: true

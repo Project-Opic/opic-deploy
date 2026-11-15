@@ -1,0 +1,5 @@
+---
+# P3b: Redis 7 + Sentinel ×3
+- hosts: redis_cluster
+  roles:
+    - redis-ha

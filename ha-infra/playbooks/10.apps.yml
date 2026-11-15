@@ -1,0 +1,9 @@
+---
+# 阶段3: Casdoor×2/ZITADEL×2/Gitea×2/Temporal×2/NATS×3
+- hosts: apps
+  roles:
+    - casdoor
+    - zitadel
+    - gitea
+    - temporal
+    - nats

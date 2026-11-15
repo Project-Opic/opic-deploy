@@ -1,0 +1,5 @@
+---
+# H0: 主机前置核查（只读，门禁不过则中止）
+- hosts: all
+  roles:
+    - pre-check

@@ -1,0 +1,11 @@
+---
+- name: render temporal docker-compose.yml ×2 (external PG temporal + temporal_visibility)
+  ansible.builtin.template:
+    src: docker-compose-temporal.yml.j2
+    dest: "{{ opic_ha_stack }}/temporal/docker-compose.yml"
+    mode: '0644'
+  notify: docker compose up temporal
+
+- name: docker compose up temporal
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/temporal/docker-compose.yml up -d
+  changed_when: true

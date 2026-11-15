@@ -1,0 +1,17 @@
+---
+- name: render gitea docker-compose.yml ×2 (external PG + shared NFS /data)
+  ansible.builtin.template:
+    src: docker-compose-gitea.yml.j2
+    dest: "{{ opic_ha_stack }}/gitea/docker-compose.yml"
+    mode: '0644'
+  notify: docker compose up gitea
+
+- name: ensure /data mount exists
+  ansible.builtin.file:
+    path: /data/gitea
+    state: directory
+    mode: '0755'
+
+- name: docker compose up gitea
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/gitea/docker-compose.yml up -d
+  changed_when: true

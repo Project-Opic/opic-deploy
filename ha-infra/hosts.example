@@ -1,0 +1,135 @@
+# OPIC HA-step1 Inventory
+# 复制为 hosts 后编辑
+# 用法: ansible-playbook -i hosts playbooks/01.pre-check.yml
+
+[harbor]
+# Harbor 全量应用节点（external_database + external_redis + DRBD-backed NFS）
+55.32.170.133 ansible_hostname=ita-m2
+55.32.170.134 ansible_hostname=ita-m3
+55.32.170.141 ansible_hostname=phdk8s141
+
+[nfs_vip]
+# DRBD + Ganesha + Keepalived（NFS VIP 持有者候选，仅这两台）
+55.32.170.133 drbd_seq=1 drbd_device_minor=0 drbd_disk=/dev/nvme2n1p2
+55.32.170.134 drbd_seq=2 drbd_device_minor=0 drbd_disk=/dev/nvme1n1p2
+
+[drbd:children]
+nfs_vip
+
+[ganesha:children]
+nfs_vip
+
+[keepalived_nfs:children]
+nfs_vip
+
+[pg_cluster]
+# Patroni + PostgreSQL 18（pigsty-node Debian12 容器内）
+# ansible_port=2201 = pg 容器 sshd
+# ansible_user=admin
+55.32.170.133 ansible_port=2201 ansible_user=admin pg_seq=1 pg_role=primary
+55.32.170.134 ansible_port=2201 ansible_user=admin pg_seq=2 pg_role=replica
+55.32.170.141 ansible_port=2201 ansible_user=admin pg_seq=3 pg_role=replica pg_offline_query=true
+
+[etcd_cluster:children]
+pg_cluster
+
+[redis_cluster:children]
+pg_cluster
+
+[kafka_cluster:children]
+pg_cluster
+
+[minio_cluster:children]
+pg_cluster
+
+[apps]
+# 双实例应用（casdoor/zitadel/gitea/temporal/nats）
+55.32.170.133 app_seq=1
+55.32.170.134 app_seq=2
+
+[vibe]
+# code-server 仅 133
+55.32.170.133
+
+[infra]
+# Pigsty infra 监控节点（Grafana/nginx/silo/pgBackRest repo）
+55.32.170.141 ansible_port=2201 ansible_user=admin
+
+[admin]
+# Pigsty admin 容器（ansible 控制面）
+55.32.170.133 ansible_hostname=pigsty-admin-ita-m2
+55.32.170.141 ansible_hostname=pigsty-admin-phdk8s141
+
+[traefik:children]
+harbor
+
+[all:children]
+harbor
+pg_cluster
+apps
+vibe
+infra
+admin
+traefik
+
+[all:vars]
+# ── 全局 ──
+opic_base_domain = opic-dev.ccoe.tech
+opic_harbor_data = /opt/opic/harbor/data
+opic_ha_stack = /opt/opic/ha-stack
+opic_nfs_vip = 55.32.170.3
+opic_nfs_export = /srv/nfs/harbor
+opic_nfs_mount_opts = vers=4.2,hard,noatime,rsize=1048576,wsize=1048576,proto=tcp,timeo=600,retrans=2
+
+# ── DRBD ──
+drbd_resource = nfsdata
+drbd_protocol = C
+drbd_resync_rate = 1024M
+drbd_c_plan_ahead = 0
+drbd_fs_type = xfs
+drbd_mount_point = /srv/nfs/harbor
+
+# ── Ganesha ──
+ganesha_version = 15.7
+ganesha_export_path = /srv/nfs/harbor
+ganesha_export_id = 77
+ganesha_protocols = 4
+ganesha_transports = TCP
+
+# ── Keepalived ──
+keepalived_vrid = 201
+keepalived_interface = br0
+keepalived_vip = 55.32.170.3/24
+keepalived_priority_master = 150
+keepalived_priority_backup = 100
+keepalived_notify_master = /opt/opic/ha/notify-master.sh
+keepalived_notify_backup = /opt/opic/ha/notify-backup.sh
+keepalived_chk_script = /opt/opic/ha/chk-drbd.sh
+
+# ── Harbor ──
+harbor_version = 2.15.2
+harbor_port = 18701
+harbor_tls_port = 18700
+harbor_data_volume = /opt/opic/harbor/data
+
+# ── Pigsty ──
+pigsty_version = v4.5.0
+pigsty_pg_version = 18
+pigsty_pg_cluster = harbor-pg
+pigsty_admin_image = pigsty-node:12
+pigsty_ansible_port = 2201
+pigsty_ansible_user = admin
+
+# ── Kafka ──
+kafka_mode = combined
+kafka_security = scram-sha-512
+kafka_port = 9092
+kafka_ssl_port = 9093
+
+# ── MinIO ──
+minio_type = silo
+minio_cluster = minio
+minio_data = '/data/minio/{1...4}'
+
+# ── 代理 ──
+proxy_env = "{'http_proxy': 'http://99.13.186.254:80', 'https_proxy': 'http://99.13.186.254:80'}"

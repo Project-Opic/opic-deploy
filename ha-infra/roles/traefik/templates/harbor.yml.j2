@@ -1,0 +1,20 @@
+# Harbor route — file provider (registry.{{ opic_base_domain }} → :18701 三后端)
+http:
+  routers:
+    harbor:
+      rule: "Host(`registry.{{ opic_base_domain }}`)"
+      entryPoints: [websecure]
+      service: harbor-svc
+      tls: {}
+  services:
+    harbor-svc:
+      loadBalancer:
+        passHostHeader: false
+        servers:
+          - url: "http://{{ hostvars[groups['harbor'][0]].ansible_host | default('55.32.170.133') }}:{{ port_map.harbor_nginx }}"
+          - url: "http://{{ hostvars[groups['harbor'][1]].ansible_host | default('55.32.170.134') }}:{{ port_map.harbor_nginx }}"
+          - url: "http://{{ hostvars[groups['harbor'][2]].ansible_host | default('55.32.170.141') }}:{{ port_map.harbor_nginx }}"
+        healthCheck:
+          path: /api/v2.0/health
+          interval: 10s
+          timeout: 5s

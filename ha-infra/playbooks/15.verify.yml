@@ -1,0 +1,5 @@
+---
+# H10: 稳态总门禁 348格（verify-step1.sh + p6-ha-70）
+- hosts: harbor
+  roles:
+    - verify

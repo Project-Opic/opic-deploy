@@ -1,0 +1,8 @@
+---
+# P3a: etcd ×3（Docker 容器 2479/2480 TLS）
+# 委托给 Pigsty ansible（admin 容器内 ansible-playbook etcd.yml）
+- hosts: etcd_cluster
+  tasks:
+    - name: delegate to pigsty admin
+      ansible.builtin.debug:
+        msg: "Pigsty etcd playbook — run inside admin container"

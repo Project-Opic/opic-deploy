@@ -1,0 +1,5 @@
+---
+# P2a/P2b: Keepalived + NFS VIP .3（133/134，nopreempt 手工回切）
+- hosts: keepalived_nfs
+  roles:
+    - keepalived

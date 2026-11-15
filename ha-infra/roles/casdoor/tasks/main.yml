@@ -1,0 +1,17 @@
+---
+- name: render casdoor docker-compose.yml ×2
+  ansible.builtin.template:
+    src: docker-compose-casdoor.yml.j2
+    dest: "{{ opic_ha_stack }}/casdoor/docker-compose.yml"
+    mode: '0644'
+  notify: docker compose up casdoor
+
+- name: render app.conf (share DB connection)
+  ansible.builtin.template:
+    src: casdoor-app.conf.j2
+    dest: "{{ opic_ha_stack }}/casdoor/app.conf"
+    mode: '0600'
+
+- name: docker compose up casdoor
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/casdoor/docker-compose.yml up -d
+  changed_when: true

@@ -1,0 +1,17 @@
+---
+- name: render nats docker-compose.yml ×3 JetStream
+  ansible.builtin.template:
+    src: docker-compose-nats.yml.j2
+    dest: "{{ opic_ha_stack }}/nats/docker-compose.yml"
+    mode: '0644'
+  notify: docker compose up nats
+
+- name: render nats-server.conf (JetStream cluster R=3)
+  ansible.builtin.template:
+    src: nats-server.conf.j2
+    dest: "{{ opic_ha_stack }}/nats/nats-server.conf"
+    mode: '0640'
+
+- name: docker compose up nats
+  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/nats/docker-compose.yml up -d
+  changed_when: true

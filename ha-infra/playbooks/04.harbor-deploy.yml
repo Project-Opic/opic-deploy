@@ -1,0 +1,6 @@
+---
+# P4+P5: Harbor ×3（external_database + external_redis + DRBD-backed NFS）
+# 先停写迁移（P2b）再部署三节点
+- hosts: harbor
+  roles:
+    - harbor

@@ -1,0 +1,18 @@
+---
+# Keepalived 角色默认值
+keepalived_vrid: 201
+keepalived_interface: "br0"
+keepalived_vip: "55.32.170.3/24"
+keepalived_priority: 150
+keepalived_state: "BACKUP"
+keepalived_advert_int: 1
+keepalived_unicast_src_ip: ""
+keepalived_unicast_peer: []
+keepalived_notify_master: "/opt/opic/ha/notify-master.sh"
+keepalived_notify_backup: "/opt/opic/ha/notify-backup.sh"
+keepalived_notify_fault: "/opt/opic/ha/notify-backup.sh"
+keepalived_chk_script: "/opt/opic/ha/chk-drbd.sh"
+keepalived_chk_interval: 2
+keepalived_chk_timeout: 5
+keepalived_chk_fall: 2
+keepalived_chk_rise: 2

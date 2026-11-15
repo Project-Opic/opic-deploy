@@ -1,0 +1,44 @@
+---
+- name: render server.properties
+  ansible.builtin.template:
+    src: server.properties.j2
+    dest: "{{ opic_ha_stack }}/kafka/server.properties"
+    mode: '0640'
+  notify: restart kafka
+
+- name: render docker-compose.yml (KRaft combined ×3 SCRAM-SHA-512)
+  ansible.builtin.template:
+    src: docker-compose-kafka.yml.j2
+    dest: "{{ opic_ha_stack }}/kafka/docker-compose.yml"
+    mode: '0644'
+  notify: restart kafka
+
+- name: generate SCRAM credentials
+  ansible.builtin.shell: |
+    kafka-configs.sh --bootstrap-server 127.0.0.1:9092 \
+      --command-config /etc/kafka/admin.properties \
+      --alter --add-config 'SCRAM-SHA-512=[iterations=4096,password={{ kafka_admin_password }}]' \
+      --entity-type users --entity-name pigsty-admin
+  changed_when: true
+  no_log: true
+
+- name: create admin.properties
+  ansible.builtin.copy:
+    content: |
+      security.protocol=SASL_SSL
+      sasl.mechanism=SCRAM-SHA-512
+      sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="pigsty-admin" password="{{ kafka_admin_password }}";
+      ssl.truststore.type=PKCS12
+      ssl.truststore.location=/etc/kafka/ssl/truststore.p12
+      ssl.endpoint.identification.algorithm=
+    dest: /etc/kafka/admin.properties
+    mode: '0600'
+    owner: kafka
+    group: kafka
+  no_log: true
+
+- name: ensure kafka started
+  ansible.builtin.systemd:
+    name: kafka
+    enabled: true
+    state: started

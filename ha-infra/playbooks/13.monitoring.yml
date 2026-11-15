@@ -1,0 +1,9 @@
+---
+# 监控面: Pigsty infra @141 + exporters ×3 + VictoriaLogs/Traces + Alertmanager
+- hosts: infra
+  roles:
+    - monitoring
+- hosts: pg_cluster
+  tasks:
+    - name: ensure exporters
+      ansible.builtin.debug: { msg: "exporters via Pigsty pg_monitor role" }
