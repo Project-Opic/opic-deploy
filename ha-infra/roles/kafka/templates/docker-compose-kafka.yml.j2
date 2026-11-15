@@ -1,21 +1,29 @@
-# Kafka KRaft combined ×{{ kafka_replicas | default(3) }} SCRAM-SHA-512
+# Kafka KRaft combined ×3（apache/kafka 官方镜像）
+# 客户端：SASL_PLAINTEXT:9092 SCRAM-SHA-512；broker 间：PLAINTEXT:9093（nebula 受控网）
 version: "3.8"
 services:
   kafka:
-    image: "{{ kafka_image | default('pigsty/kafka:3.5.1') }}"
+    image: "{{ kafka_image }}"
     container_name: kafka-{{ ansible_hostname }}
     network_mode: host
     restart: unless-stopped
     environment:
-      KAFKA_NODE_ID: "{{ kafka_seq }}"
+      KAFKA_NODE_ID: "{{ (groups['kafka_cluster'] | index(inventory_hostname)) + 1 }}"
       KAFKA_PROCESS_ROLES: "broker,controller"
-      KAFKA_LISTENERS: "BROKER://0.0.0.0:{{ port_map.kafka_client }},CONTROLLER://0.0.0.0:{{ port_map.kafka_ssl }}"
-      KAFKA_ADVERTISED_LISTENERS: "BROKER://{{ ansible_host }}:{{ port_map.kafka_client }}"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "{% for h in groups['kafka_cluster'] %}{{ hostvars[h].kafka_seq | default(loop.index) }}@{{ hostvars[h].ansible_host }}:{{ port_map.kafka_ssl }}{% if not loop.last %},{% endif %}{% endfor %}"
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "BROKER:SASL_SSL,CONTROLLER:SSL"
-      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
-      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf"
+      KAFKA_LISTENERS: "SASL_PLAINTEXT://0.0.0.0:{{ kafka_client_port }},PLAINTEXT://0.0.0.0:{{ kafka_interbroker_port }},CONTROLLER://0.0.0.0:{{ kafka_controller_port }}"
+      KAFKA_ADVERTISED_LISTENERS: "SASL_PLAINTEXT://{{ ansible_host }}:{{ kafka_client_port }},PLAINTEXT://{{ ansible_host }}:{{ kafka_interbroker_port }}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "SASL_PLAINTEXT:SASL_PLAINTEXT,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_SASL_ENABLED_MECHANISMS: "SCRAM-SHA-512"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "{% for h in groups['kafka_cluster'] %}{{ (groups['kafka_cluster'] | index(h)) + 1 }}@{{ hostvars[h].ansible_host }}:{{ kafka_controller_port }}{% if not loop.last %},{% endif %}{% endfor %}"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "3"
+      KAFKA_MIN_INSYNC_REPLICAS: "2"
+      KAFKA_LOG_DIRS: "/var/kafka-logs"
+      KAFKA_HEAP_OPTS: "-Xmx1g -Xms1g"
+      CLUSTER_ID: "{{ kafka_cluster_id }}"
     volumes:
-      - "{{ opic_ha_stack }}/kafka/data:/var/lib/kafka/data"
-      - "{{ opic_ha_stack }}/kafka/server.properties:/etc/kafka/server.properties:ro"
-      - "{{ opic_ha_stack }}/kafka/ssl:/etc/kafka/ssl:ro"
+      - "{{ kafka_dir }}/data:/var/kafka-logs"

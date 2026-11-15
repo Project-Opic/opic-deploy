@@ -1,0 +1,9 @@
+---
+etcd_version: "3.5.17"
+etcd_base_dir: "/opt/opic/etcd"
+etcd_bin_dir: "/opt/opic/etcd"   # strip-components=1 解出后二进制直接位于 base
+etcd_ssl_dir: "/opt/opic/etcd/ssl"
+etcd_data_dir: "/opt/opic/etcd/data"
+etcd_client_port: 2479
+etcd_peer_port: 2480
+etcd_cluster_token: "opic-etcd-v1"

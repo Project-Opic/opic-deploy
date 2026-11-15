@@ -1,0 +1,35 @@
+global
+    log 127.0.0.1 local2 info
+    maxconn 4000
+
+defaults
+    mode tcp
+    log global
+    timeout connect 5s
+    timeout client 1h
+    timeout server 1h
+    timeout check 5s
+
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+
+# write routing: only the patroni leader answers 200 on /leader
+# health probes hit patroni REST (8008); traffic forwards to postgres 5432
+listen pg-rw
+    bind *:{{ pg_rw_port }}
+    option httpchk
+    http-check send meth GET uri /leader ver HTTP/1.1 hdr Host localhost
+    http-check expect status 200
+{% for h in groups['pg_cluster'] %}
+    server {{ h }} {{ hostvars[h].ansible_host }}:5432 maxconn 100 check port {{ pg_restapi_port }} inter 2s fastinter 500ms fall 3
+{% endfor %}
+
+# read routing: any healthy member (TCP check on 5432, round-robin)
+listen pg-ro
+    bind *:{{ pg_ro_port }}
+{% for h in groups['pg_cluster'] %}
+    server {{ h }} {{ hostvars[h].ansible_host }}:5432 maxconn 100 check inter 2s fall 3
+{% endfor %}

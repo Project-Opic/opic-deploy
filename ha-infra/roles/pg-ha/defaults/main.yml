@@ -1,0 +1,16 @@
+---
+# pg-ha：原生 Patroni + PG18（pgdg aliyun 镜像）+ etcd DCS（05.etcd 角色）
+pg_version: "18"
+pg_cluster_name: "opicpg"
+pg_base_dir: "/data/pg"
+pg_data_dir: "/data/pg/18"
+pg_data_disk: "/dev/nvme1n1"
+pg_admin_password: "OpicPg2026Lab"
+pg_replication_password: "OpicPgRepl2026"
+pg_restapi_port: 8008
+pg_rw_port: 5433      # haproxy → primary
+pg_ro_port: 5434      # haproxy → any
+pg_pgbouncer_port: 6432
+pgdg_baseurl: "https://mirrors.aliyun.com/postgresql/repos/yum/18/redhat/rhel-8-x86_64/"
+patroni_bin: "/opt/aiext/bin/patroni"
+etcd_client_port: 2479

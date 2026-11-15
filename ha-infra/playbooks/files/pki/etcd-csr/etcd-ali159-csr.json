@@ -1,0 +1,11 @@
+{
+  "CN": "ali159",
+  "key": { "algo": "rsa", "size": 2048 },
+  "names": [ { "C": "CN", "ST": "Lab", "L": "Lab", "O": "opic", "OU": "dcs" } ],
+  "hosts": [
+    "ali159",
+    "10.26.8.159",
+    "localhost",
+    "127.0.0.1"
+  ]
+}

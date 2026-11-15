@@ -1,0 +1,11 @@
+{
+  "CN": "patroni-ali158",
+  "key": { "algo": "rsa", "size": 2048 },
+  "names": [ { "C": "CN", "ST": "Lab", "L": "Lab", "O": "opic", "OU": "pg" } ],
+  "hosts": [
+    "10.26.8.158",
+    "ali158",
+    "localhost",
+    "127.0.0.1"
+  ]
+}

@@ -1,0 +1,65 @@
+scope: {{ pg_cluster_name }}
+name: {{ ansible_hostname }}
+restapi:
+  listen: 0.0.0.0:{{ pg_restapi_port }}
+  connect_address: {{ ansible_host }}:{{ pg_restapi_port }}
+
+bootstrap:
+  method: initdb
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: 200
+        shared_buffers: 512MB
+        wal_level: replica
+        max_wal_senders: 10
+        max_replication_slots: 10
+        hot_standby: on
+      pg_hba:
+        - local all all peer
+        - host all all 127.0.0.1/32 scram-sha-256
+        - host all all ::1/128 scram-sha-256
+        - host all all 10.0.0.0/8 scram-sha-256
+        - host all all 10.26.8.0/24 scram-sha-256
+        - host replication replicator 10.0.0.0/8 scram-sha-256
+        - host replication replicator 10.26.8.0/24 scram-sha-256
+      authentication:
+        superuser:
+          username: postgres
+          password: "{{ pg_admin_password }}"
+        replication:
+          username: replicator
+          password: "{{ pg_replication_password }}"
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: {{ ansible_host }}:5432
+  data_dir: {{ pg_data_dir }}
+  bin_dir: /usr/pgsql-{{ pg_version }}/bin
+  pgpass: /data/pg/.pgpass-patroni
+  authentication:
+    superuser:
+      username: postgres
+      password: "{{ pg_admin_password }}"
+    replication:
+      username: replicator
+      password: "{{ pg_replication_password }}"
+
+etcd3:
+  protocol: https
+  hosts:
+{% for h in groups['etcd_cluster'] %}
+    - {{ hostvars[h].ansible_host }}:{{ etcd_client_port }}
+{% endfor %}
+  cacert: /etc/patroni/ssl/ca.crt
+  cert: /etc/patroni/ssl/client.pem
+  key: /etc/patroni/ssl/client-key.pem

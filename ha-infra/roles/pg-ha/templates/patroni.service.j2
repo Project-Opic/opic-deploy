@@ -1,0 +1,19 @@
+[Unit]
+Description=Patroni High-Availability PostgreSQL {{ pg_version }} (OPIC)
+After=network-online.target etcd.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=postgres
+Group=postgres
+ExecStart=/opt/aiext/bin/patroni /etc/patroni/patroni.yml
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=process
+TimeoutSec=180
+Restart=always
+RestartSec=5
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+---
+- name: docker compose up kafka
+  community.docker.docker_compose_v2:
+    src: "{{ kafka_dir }}/docker-compose.yml"
+    state: present
+  register: kafka_up
+  retries: 3
+  delay: 10

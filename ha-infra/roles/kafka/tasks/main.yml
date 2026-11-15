@@ -1,44 +1,68 @@
 ---
-- name: render server.properties
-  ansible.builtin.template:
-    src: server.properties.j2
-    dest: "{{ opic_ha_stack }}/kafka/server.properties"
-    mode: '0640'
-  notify: restart kafka
+# Kafka KRaft combined ×3（compose + systemd unit via systemd 管理 docker compose 不必要——compose restart 策略即可）
+- name: create kafka dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ kafka_dir }}"
+    - "{{ kafka_dir }}/data"
 
-- name: render docker-compose.yml (KRaft combined ×3 SCRAM-SHA-512)
+- name: render docker-compose.yml (KRaft combined ×3, SCRAM client listener)
   ansible.builtin.template:
     src: docker-compose-kafka.yml.j2
-    dest: "{{ opic_ha_stack }}/kafka/docker-compose.yml"
+    dest: "{{ kafka_dir }}/docker-compose.yml"
     mode: '0644'
-  notify: restart kafka
+  notify: docker compose up kafka
 
-- name: generate SCRAM credentials
-  ansible.builtin.shell: |
-    kafka-configs.sh --bootstrap-server 127.0.0.1:9092 \
-      --command-config /etc/kafka/admin.properties \
-      --alter --add-config 'SCRAM-SHA-512=[iterations=4096,password={{ kafka_admin_password }}]' \
-      --entity-type users --entity-name pigsty-admin
+- name: pull kafka image
+  ansible.builtin.command: docker pull {{ kafka_image }}
+  register: kafka_pull
+  changed_when: "'Downloaded newer image' in kafka_pull.stdout or 'Image is up to date' in kafka_pull.stdout"
+  retries: 3
+  delay: 15
+
+- name: ensure kafka compose up
+  ansible.builtin.command: docker compose -f {{ kafka_dir }}/docker-compose.yml up -d
   changed_when: true
-  no_log: true
 
-- name: create admin.properties
-  ansible.builtin.copy:
-    content: |
-      security.protocol=SASL_SSL
-      sasl.mechanism=SCRAM-SHA-512
-      sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="pigsty-admin" password="{{ kafka_admin_password }}";
-      ssl.truststore.type=PKCS12
-      ssl.truststore.location=/etc/kafka/ssl/truststore.p12
-      ssl.endpoint.identification.algorithm=
-    dest: /etc/kafka/admin.properties
-    mode: '0600'
-    owner: kafka
-    group: kafka
-  no_log: true
+- name: wait kafka interbroker port
+  ansible.builtin.wait_for:
+    port: "{{ kafka_interbroker_port }}"
+    timeout: 120
 
-- name: ensure kafka started
-  ansible.builtin.systemd:
-    name: kafka
-    enabled: true
-    state: started
+# 集群形成后（run_once 在首台）创建 SCRAM 用户
+- name: create SCRAM user opic-admin
+  ansible.builtin.shell: |
+    docker exec kafka-{{ hostvars[groups['kafka_cluster'][0]].ansible_hostname }} \
+      /opt/kafka/bin/kafka-configs.sh --bootstrap-server {{ groups['kafka_cluster'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^', '') | join(':' ~ kafka_client_port ~ ',') }}:{{ kafka_client_port }} \
+      --alter --add-config 'SCRAM-SHA-512=[iterations=8192,password={{ kafka_admin_password }}]' \
+      --entity-type users --entity-name {{ kafka_scram_user }}
+  register: scram_create
+  changed_when: true
+  failed_when: false
+  no_log: true
+  run_once: true
+  retries: 10
+  delay: 10
+  until: scram_create.rc == 0
+
+- name: verify topic create/delete via SCRAM
+  ansible.builtin.shell: |
+    set -e
+    docker exec {{ groups['kafka_cluster'] | map('extract', hostvars, 'ansible_hostname') | first | regex_replace('^ali', 'kafka-') }} \
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:{{ kafka_interbroker_port }} \
+      --create --topic opic-smoke --partitions 3 --replication-factor 3
+    docker exec kafka-{{ groups['kafka_cluster'] | map('extract', hostvars, 'ansible_hostname') | first }} \
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:{{ kafka_interbroker_port }} --describe --topic opic-smoke
+  register: topic_ok
+  changed_when: true
+  run_once: true
+
+- name: assert replication 3
+  ansible.builtin.assert:
+    that: "(topic_ok.stdout | regex_findall('broker:')). | length >= 3"
+    fail_msg: "opic-smoke not replicated to 3 brokers"
+    success_msg: "Kafka KRaft ×3 up, opic-smoke RF=3"
+  run_once: true

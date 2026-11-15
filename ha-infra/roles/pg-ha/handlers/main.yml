@@ -1,0 +1,19 @@
+---
+- name: daemon reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: restart patroni
+  ansible.builtin.systemd:
+    name: patroni
+    state: restarted
+
+- name: restart haproxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: restarted
+
+- name: restart pgbouncer
+  ansible.builtin.systemd:
+    name: pgbouncer
+    state: restarted

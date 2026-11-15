@@ -1,0 +1,169 @@
+---
+# etcd 角色：二进制部署 + 平台 cfssl TLS + systemd ×3（Patroni 的 DCS）
+# CA key 仅在 harbor[0]（157）——集中签发：各机渲染 CSR → 汇总到 157 签发 → 分发回各机
+
+- name: create etcd directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+  loop:
+    - "{{ etcd_base_dir }}"
+    - "{{ etcd_bin_dir }}"
+    - "{{ etcd_ssl_dir }}"
+    - "{{ etcd_data_dir }}"
+    - "{{ etcd_base_dir }}/csr"
+
+- name: copy etcd tarball
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ etcd_base_dir }}/"
+    mode: '0644'
+
+- name: extract etcd binaries
+  ansible.builtin.unarchive:
+    src: "{{ etcd_base_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ etcd_base_dir }}"
+    remote_src: true
+    extra_opts: [--strip-components=1]
+    creates: "{{ etcd_bin_dir }}/etcd"
+
+- name: link etcd/etcdctl into /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ etcd_bin_dir }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop: [etcd, etcdctl]
+
+# ── 证书：每台渲染 CSR（主机名/IP 为 SAN）→ 全部收集到 CA leader 签发 ──
+- name: render etcd server csr
+  ansible.builtin.template:
+    src: etcd-server-csr.json.j2
+    dest: "{{ etcd_base_dir }}/csr/etcd-{{ inventory_hostname }}-csr.json"
+    mode: '0644'
+
+- name: fetch csrs to control machine
+  ansible.builtin.fetch:
+    src: "{{ etcd_base_dir }}/csr/etcd-{{ inventory_hostname }}-csr.json"
+    dest: "{{ playbook_dir }}/../files/pki/etcd-csr/"
+    flat: true
+
+- name: create sign dir on CA leader
+  ansible.builtin.file:
+    path: /opt/opic/ha-stack/etcd-sign
+    state: directory
+    mode: '0750'
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+
+- name: stage csrs on CA leader
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/etcd-csr/etcd-{{ item }}-csr.json"
+    dest: "/opt/opic/ha-stack/etcd-sign/etcd-{{ item }}-csr.json"
+    mode: '0644'
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['etcd_cluster'] }}"
+
+- name: sign etcd certs on CA leader
+  ansible.builtin.shell: |
+    set -e
+    cfssl gencert -ca {{ cert_platform_dir }}/ca/ca.pem -ca-key {{ cert_platform_dir }}/ca/ca-key.pem \
+      -config {{ cert_platform_dir }}/ca-config.json -profile server \
+      /opt/opic/ha-stack/etcd-sign/etcd-{{ item }}-csr.json | cfssljson -bare /opt/opic/ha-stack/etcd-sign/etcd-{{ item }}
+  args:
+    creates: "/opt/opic/ha-stack/etcd-sign/etcd-{{ item }}.pem"
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['etcd_cluster'] }}"
+
+- name: fetch signed certs to control machine
+  ansible.builtin.fetch:
+    src: "/opt/opic/ha-stack/etcd-sign/etcd-{{ item }}.pem"
+    dest: "{{ playbook_dir }}/../files/pki/etcd/"
+    flat: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['etcd_cluster'] }}"
+
+- name: fetch signed keys to control machine
+  ansible.builtin.fetch:
+    src: "/opt/opic/ha-stack/etcd-sign/etcd-{{ item }}-key.pem"
+    dest: "{{ playbook_dir }}/../files/pki/etcd/"
+    flat: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['etcd_cluster'] }}"
+
+- name: distribute cert to node
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/etcd/etcd-{{ inventory_hostname }}.pem"
+    dest: "{{ etcd_ssl_dir }}/etcd.pem"
+    mode: '0644'
+
+- name: distribute key to node
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/etcd/etcd-{{ inventory_hostname }}-key.pem"
+    dest: "{{ etcd_ssl_dir }}/etcd-key.pem"
+    mode: '0600'
+
+- name: copy platform CA into etcd ssl dir
+  ansible.builtin.copy:
+    src: "{{ cert_platform_dir }}/ca/ca.pem"
+    dest: "{{ etcd_ssl_dir }}/ca.crt"
+    mode: '0644'
+    remote_src: true
+
+# ── systemd ──
+- name: render etcd.service
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    mode: '0644'
+  notify:
+    - daemon reload
+    - restart etcd
+
+- name: ensure etcd enabled and started
+  ansible.builtin.systemd:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: wait etcd peer port
+  ansible.builtin.wait_for:
+    port: "{{ etcd_peer_port }}"
+    timeout: 60
+
+- name: verify endpoint health
+  ansible.builtin.shell: |
+    export ETCDCTL_API=3
+    etcdctl --endpoints=https://127.0.0.1:{{ etcd_client_port }} \
+      --cacert={{ etcd_ssl_dir }}/ca.crt \
+      --cert={{ etcd_ssl_dir }}/etcd.pem --key={{ etcd_ssl_dir }}/etcd-key.pem \
+      endpoint health
+  register: etcd_health
+  retries: 15
+  delay: 5
+  until: "'is healthy' in etcd_health.stdout"
+  changed_when: false
+
+- name: list cluster members
+  ansible.builtin.shell: |
+    export ETCDCTL_API=3
+    etcdctl --endpoints={% for h in groups['etcd_cluster'] %}https://{{ hostvars[h].ansible_host }}:{{ etcd_client_port }}{% if not loop.last %},{% endif %}{% endfor %} \
+      --cacert={{ etcd_ssl_dir }}/ca.crt \
+      --cert={{ etcd_ssl_dir }}/etcd.pem --key={{ etcd_ssl_dir }}/etcd-key.pem \
+      member list -w table
+  register: etcd_members
+  changed_when: false
+  run_once: true
+
+- name: assert 3 started members
+  ansible.builtin.assert:
+    that: "(etcd_members.stdout | regex_findall('started')) | length >= 3"
+    fail_msg: "etcd cluster has fewer than 3 started members"
+    success_msg: "etcd 3-member cluster healthy"
+  run_once: true

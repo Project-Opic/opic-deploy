@@ -83,6 +83,21 @@
     mode: '0644'
   notify: daemon reload
 
+- name: create nebula drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/nebula.service.d
+    state: directory
+    mode: '0755'
+
+- name: add nebula drop-in (restart keepalived after nebula recreates nebula1, else VIP is lost)
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      ExecStartPost=/usr/bin/systemctl try-restart keepalived.service
+    dest: /etc/systemd/system/nebula.service.d/opic-keepalived-vip.conf
+    mode: '0644'
+  notify: daemon reload
+
 - name: validate keepalived config
   ansible.builtin.command: keepalived -t -f /etc/keepalived/keepalived.conf
   changed_when: false

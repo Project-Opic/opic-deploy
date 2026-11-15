@@ -1,60 +1,290 @@
 ---
-# pg-ha 角色：Pigsty 容器编排前置 + deploy.yml 委托
-# pg 容器本身由 Pigsty 管理；本角色做 pigsty-node 镜像构建与容器启动
+# pg-ha 角色：原生 Patroni + PG18（pgdg aliyun 在线镜像）+ etcd DCS + haproxy + pgbouncer
+# 数据盘：/dev/nvme1n1 → XFS → /data（本地 NVMe，禁 NFS；设计 §00-architecture）
 
-- name: create pigsty directories
+# ── 数据盘 ──
+- name: check data disk signature
+  ansible.builtin.command: blkid {{ pg_data_disk }}
+  register: disk_blkid
+  failed_when: disk_blkid.rc not in [0, 2]
+  changed_when: false
+
+- name: make XFS on data disk (fresh only)
+  ansible.builtin.command: mkfs.xfs -f {{ pg_data_disk }}
+  when: disk_blkid.rc == 2
+
+- name: get data disk UUID
+  ansible.builtin.command: blkid -s UUID -o value {{ pg_data_disk }}
+  register: disk_uuid
+  changed_when: false
+
+- name: mount /data via fstab
+  ansible.posix.mount:
+    path: "/data"
+    src: "UUID={{ disk_uuid.stdout }}"
+    fstype: xfs
+    opts: noatime
+    state: mounted
+
+# ── 包安装 ──
+- name: add pgdg18 repo (aliyun mirror)
+  ansible.builtin.copy:
+    content: |
+      [pgdg18]
+      name=PostgreSQL {{ pg_version }} PGDG aliyun
+      baseurl={{ pgdg_baseurl }}
+      enabled=1
+      gpgcheck=0
+    dest: /etc/yum.repos.d/pgdg18.repo
+    mode: '0644'
+
+- name: disable postgresql module (al8 appstream)
+  ansible.builtin.command: dnf -y module disable postgresql
+  register: mod_disable
+  changed_when: "'Complete!' in mod_disable.stdout or 'disabled' in mod_disable.stdout"
+  failed_when: false
+
+- name: install postgres/haproxy/pgbouncer
+  ansible.builtin.package:
+    name:
+      - postgresql{{ pg_version }}
+      - postgresql{{ pg_version }}-server
+      - postgresql{{ pg_version }}-contrib
+      - haproxy
+      - pgbouncer
+    state: present
+
+- name: mask vendor postgresql service (patroni manages postgres)
+  ansible.builtin.command: systemctl mask postgresql-{{ pg_version }}
+  changed_when: true
+
+- name: install patroni via aliyun pypi
+  ansible.builtin.command: >-
+    /opt/aiext/bin/python3.12 -m pip install "patroni[etcd]" packaging psycopg2-binary
+    -i https://mirrors.aliyun.com/pypi/simple/
+  register: patroni_pip
+  changed_when: "'Successfully installed' in patroni_pip.stdout"
+
+# ── patroni → etcd 的 client 证书（平台 CA 集中签发）──
+- name: create /etc/patroni/ssl
+  ansible.builtin.file:
+    path: /etc/patroni/ssl
+    state: directory
+    mode: '0755'
+
+- name: render patroni etcd client csr
+  ansible.builtin.template:
+    src: patroni-client-csr.json.j2
+    dest: "/etc/patroni/ssl/patroni-client-csr.json"
+    mode: '0644'
+
+- name: fetch patroni csrs to control machine
+  ansible.builtin.fetch:
+    src: "/etc/patroni/ssl/patroni-client-csr.json"
+    dest: "{{ playbook_dir }}/../files/pki/patroni-csr/{{ inventory_hostname }}/"
+    flat: true
+
+- name: create sign dir on CA leader
+  ansible.builtin.file:
+    path: /opt/opic/ha-stack/patroni-sign
+    state: directory
+    mode: '0750'
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+
+- name: stage patroni csrs on CA leader
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/patroni-csr/{{ item }}/patroni-client-csr.json"
+    dest: "/opt/opic/ha-stack/patroni-sign/patroni-{{ item }}-csr.json"
+    mode: '0644'
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['pg_cluster'] }}"
+
+- name: sign patroni client certs on CA leader
+  ansible.builtin.shell: |
+    set -e
+    cfssl gencert -ca {{ cert_platform_dir }}/ca/ca.pem -ca-key {{ cert_platform_dir }}/ca/ca-key.pem \
+      -config {{ cert_platform_dir }}/ca-config.json -profile client \
+      /opt/opic/ha-stack/patroni-sign/patroni-{{ item }}-csr.json | cfssljson -bare /opt/opic/ha-stack/patroni-sign/patroni-{{ item }}
+  args:
+    creates: "/opt/opic/ha-stack/patroni-sign/patroni-{{ item }}.pem"
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['pg_cluster'] }}"
+
+- name: fetch signed patroni certs to control machine
+  ansible.builtin.fetch:
+    src: "/opt/opic/ha-stack/patroni-sign/patroni-{{ item }}.pem"
+    dest: "{{ playbook_dir }}/../files/pki/patroni/"
+    flat: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['pg_cluster'] }}"
+
+- name: fetch signed patroni keys to control machine
+  ansible.builtin.fetch:
+    src: "/opt/opic/ha-stack/patroni-sign/patroni-{{ item }}-key.pem"
+    dest: "{{ playbook_dir }}/../files/pki/patroni/"
+    flat: true
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  loop: "{{ groups['pg_cluster'] }}"
+
+- name: distribute patroni client cert
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/patroni/patroni-{{ inventory_hostname }}.pem"
+    dest: /etc/patroni/ssl/client.pem
+    mode: '0644'
+    owner: postgres
+    group: postgres
+
+- name: distribute patroni client key
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../files/pki/patroni/patroni-{{ inventory_hostname }}-key.pem"
+    dest: /etc/patroni/ssl/client-key.pem
+    mode: '0640'
+    owner: postgres
+    group: postgres
+
+- name: copy platform CA for patroni
+  ansible.builtin.copy:
+    src: "{{ cert_platform_dir }}/ca/ca.pem"
+    dest: /etc/patroni/ssl/ca.crt
+    mode: '0644'
+    remote_src: true
+
+# ── patroni 配置与服务 ──
+- name: create patroni data dirs
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0755'
+    owner: postgres
+    group: postgres
   loop:
-    - "{{ pigsty_home }}"
-    - "{{ pigsty_docker_data }}"
-    - "{{ opic_ha_stack }}/pigsty"
+    - "{{ pg_base_dir }}"
+    - "{{ pg_base_dir }}/ssl"
 
-- name: copy pigsty release tarball
-  ansible.builtin.copy:
-    src: "{{ offline_dir }}/pigsty-{{ pigsty_version }}.tgz"
-    dest: "{{ pigsty_home }}/"
+- name: render patroni.yml
+  ansible.builtin.template:
+    src: patroni.yml.j2
+    dest: /etc/patroni/patroni.yml
+    mode: '0640'
+    owner: postgres
+    group: postgres
+  notify: restart patroni
+
+- name: render patroni.service
+  ansible.builtin.template:
+    src: patroni.service.j2
+    dest: /etc/systemd/system/patroni.service
     mode: '0644'
+  notify:
+    - daemon reload
+    - restart patroni
 
-- name: extract pigsty
-  ansible.builtin.unarchive:
-    src: "{{ pigsty_home }}/pigsty-{{ pigsty_version }}.tgz"
-    dest: "{{ pigsty_home }}"
-    remote_src: true
-
-- name: build pigsty-node:12 Docker image
-  community.docker.docker_image_build:
-    path: "{{ opic_ha_stack }}/pigsty-node"
-    name: "{{ pigsty_node_image }}"
-    push: false
-  # Dockerfile 基于 Debian:12 + systemd + pigsty deps
-
-- name: start pigsty pg container
-  community.docker.docker_container:
-    name: "pigsty-pg-{{ ansible_hostname }}"
-    image: "{{ pigsty_node_image }}"
+- name: ensure patroni enabled and started
+  ansible.builtin.systemd:
+    name: patroni
+    enabled: true
     state: started
-    restart_policy: unless-stopped
-    privileged: true
-    cgroupns_mode: host
-    network_mode: host
-    volumes:
-      - "{{ pigsty_home }}:/data/pigsty"
-      - "{{ pigsty_docker_data }}:/data/docker"
-      - "/opt/opic/ha-stack/pigsty:/opt/opic/ha-stack/pigsty"
-    tmpfs:
-      - "/run:exec,512m"
-      - "/run/lock"
-      - "/tmp:exec"
-  register: pg_container
+    daemon_reload: true
 
-- name: wait for container systemd running
-  ansible.builtin.command: >
-    docker exec pigsty-pg-{{ ansible_hostname }} systemctl is-system-running
-  register: sysstate
+# ── 集群引导等待 ──
+- name: wait patroni cluster form (3 members + leader)
+  ansible.builtin.command: /opt/aiext/bin/patronictl -c /etc/patroni/patroni.yml list
+  register: plist
+  retries: 90
+  delay: 5
+  until:
+    - "'Leader' in plist.stdout"
+    - "(plist.stdout | regex_findall('streaming|in recovery|running')) | length >= 2"
   changed_when: false
-  retries: 30
-  delay: 3
-  until: "'running' in sysstate.stdout or 'degraded' in sysstate.stdout"
+  run_once: true
+  delegate_to: "{{ groups['pg_cluster'][0] }}"
+
+# ── haproxy（5433 rw / 5434 ro）──
+- name: backup vendor haproxy.cfg
+  ansible.builtin.copy:
+    src: /etc/haproxy/haproxy.cfg
+    dest: /etc/haproxy/haproxy.cfg.bak-vendor
+    remote_src: true
+    force: false
+
+- name: render haproxy.cfg (pg section)
+  ansible.builtin.template:
+    src: haproxy-pg.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    mode: '0644'
+  notify: restart haproxy
+
+- name: ensure haproxy enabled and started
+  ansible.builtin.systemd:
+    name: haproxy
+    enabled: true
+    state: started
+
+# ── pgbouncer（6432 → 127.0.0.1:5433）──
+- name: render pgbouncer.ini
+  ansible.builtin.template:
+    src: pgbouncer.ini.j2
+    dest: /etc/pgbouncer/pgbouncer.ini
+    mode: '0640'
+    owner: pgbouncer
+    group: pgbouncer
+  notify: restart pgbouncer
+
+- name: render userlist.txt
+  ansible.builtin.template:
+    src: userlist.txt.j2
+    dest: /etc/pgbouncer/userlist.txt
+    mode: '0640'
+    owner: pgbouncer
+    group: pgbouncer
+  notify: restart pgbouncer
+
+- name: ensure pgbouncer enabled and started
+  ansible.builtin.systemd:
+    name: pgbouncer
+    enabled: true
+    state: started
+
+# ── 业务库 ──
+- name: flush handlers (haproxy/pgbouncer restarted before use)
+  meta: flush_handlers
+
+- name: create databases via rw endpoint
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PGPASSWORD='{{ pg_admin_password }}'
+    for db in opic harbor_db registry; do
+      psql -h 127.0.0.1 -p {{ pg_rw_port }} -U postgres -tAc \
+        "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 || \
+        psql -h 127.0.0.1 -p {{ pg_rw_port }} -U postgres -c "CREATE DATABASE $db"
+    done
+    psql -h 127.0.0.1 -p {{ pg_rw_port }} -U postgres -tAc "SELECT datname FROM pg_database WHERE datname IN ('opic','harbor_db','registry')" | grep -c .
+  register: db_create
+  retries: 10
+  delay: 5
+  until: "(db_create.stdout | trim | int) >= 3"
+  run_once: true
+  delegate_to: "{{ groups['pg_cluster'][0] }}"
+  no_log: true
+
+# ── 断言 ──
+- name: final cluster listing
+  ansible.builtin.command: /opt/aiext/bin/patronictl -c /etc/patroni/patroni.yml list
+  register: pfinal
+  changed_when: false
+  run_once: true
+  delegate_to: "{{ groups['pg_cluster'][0] }}"
+
+- name: assert 1 leader + 2 replicas
+  ansible.builtin.assert:
+    that:
+      - "(pfinal.stdout | regex_findall('Leader')) | length == 1"
+      - "(pfinal.stdout | regex_findall('Replica|streaming')) | length >= 2"
+    fail_msg: "patroni cluster topology wrong:\n{{ pfinal.stdout }}"
+    success_msg: "patroni 1 leader + 2 replicas"
+  run_once: true
