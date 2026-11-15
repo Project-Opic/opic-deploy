@@ -1,6 +1,11 @@
 ---
 # MinIO 分布式 EC ×3（RPM 安装 + systemd + mc 建桶验证）
 # 镜像路线不可达（Docker Hub/quay/加速器均失败）→ RPM（GitHub release 介质）
+- name: disable docker-compose residue from earlier runs
+  ansible.builtin.file:
+    path: /etc/systemd/system/opic-minio.service
+    state: absent
+
 - name: copy minio rpm + mc to targets
   ansible.builtin.copy:
     src: "{{ offline_dir }}/{{ item }}"
@@ -15,6 +20,14 @@
     name: "/usr/local/bin/{{ minio_rpm }}"
     state: present
     disable_gpg_check: true
+
+- name: create minio system user (rpm doesn't)
+  ansible.builtin.user:
+    name: minio
+    system: true
+    shell: /sbin/nologin
+    home: /var/lib/minio
+    create_home: false
 
 - name: mc binary at /usr/local/bin/mc
   ansible.builtin.command: mv /usr/local/bin/mc_linux_amd64 /usr/local/bin/mc
@@ -56,6 +69,14 @@
     owner: minio
     group: minio
   loop: "{{ minio_data_dirs }}"
+  notify: restart minio
+
+- name: parent data root owned by minio too (perm chain)
+  ansible.builtin.file:
+    path: /data/minio
+    owner: minio
+    group: minio
+    mode: '0750'
 
 - name: ensure minio enabled and started
   ansible.builtin.systemd:

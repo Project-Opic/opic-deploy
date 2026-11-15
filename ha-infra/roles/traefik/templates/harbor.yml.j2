@@ -1,4 +1,4 @@
-# Harbor route — file provider (registry.{{ opic_base_domain }} → :18701 三后端)
+# Harbor route — file provider（registry.<domain> :443 → 三台 Harbor TLS :18700）
 http:
   routers:
     harbor:
@@ -9,12 +9,14 @@ http:
   services:
     harbor-svc:
       loadBalancer:
-        passHostHeader: false
+        passHostHeader: true
         servers:
-          - url: "http://{{ hostvars[groups['harbor'][0]].ansible_host | default('55.32.170.133') }}:{{ port_map.harbor_nginx }}"
-          - url: "http://{{ hostvars[groups['harbor'][1]].ansible_host | default('55.32.170.134') }}:{{ port_map.harbor_nginx }}"
-          - url: "http://{{ hostvars[groups['harbor'][2]].ansible_host | default('55.32.170.141') }}:{{ port_map.harbor_nginx }}"
+{% for h in groups['harbor'] %}
+          - url: "https://{{ hostvars[h].ansible_host }}:{{ harbor_tls_port | default(18700) }}"
+{% endfor %}
         healthCheck:
           path: /api/v2.0/health
+          method: GET
+          scheme: https
           interval: 10s
           timeout: 5s

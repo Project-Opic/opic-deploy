@@ -1,4 +1,4 @@
-# Traefik v3 static config
+# Traefik v3 static config（host network + file provider，通配证书本地签发）
 global:
   checkNewVersion: false
   sendAnonymousUsage: false
@@ -8,11 +8,8 @@ entryPoints:
     address: ":{{ port_map.traefik_tls }}"
 
 providers:
-  docker:
-    exposedByDefault: false
-    network: opic-net
   file:
-    directory: "{{ opic_ha_stack }}/traefik/dynamic"
+    directory: "/etc/traefik/dynamic"
     watch: true
 
 api:
@@ -21,6 +18,14 @@ api:
 log:
   level: INFO
 
-certificatesResolvers:
-  default:
-    tls: {}
+tls:
+  certificates:
+    - certFile: /etc/traefik/tls/tls.pem
+      keyFile: /etc/traefik/tls/tls-key.pem
+  options:
+    default:
+      minVersion: VersionTLS12
+
+serversTransport:
+  rootCAs:
+    - /etc/traefik/tls/ca.crt

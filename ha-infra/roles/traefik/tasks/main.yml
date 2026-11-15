@@ -1,35 +1,82 @@
 ---
-- name: render opic-traefik docker-compose.yml ×3
-  ansible.builtin.template:
-    src: docker-compose-traefik.yml.j2
-    dest: "{{ opic_ha_stack }}/traefik/docker-compose.yml"
-    mode: '0644'
-  notify: restart opic-traefik
+# Traefik v3 ×3（二进制 + systemd，:443 TLS 入口 → Harbor :18700）
+- name: create traefik dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/traefik
+    - /etc/traefik/dynamic
+    - /etc/traefik/tls
 
-- name: copy Traefik static config
+- name: copy traefik binary
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/traefik_v3.1.5"
+    dest: /usr/local/bin/traefik
+    mode: '0755'
+
+- name: render static config
   ansible.builtin.template:
     src: traefik.yml.j2
-    dest: "{{ opic_ha_stack }}/traefik/traefik.yml"
+    dest: /etc/traefik/traefik.yml
     mode: '0644'
-  notify: restart opic-traefik
+  notify: restart traefik
 
-- name: copy Harbor route file (file provider)
+- name: render dynamic harbor route
   ansible.builtin.template:
     src: harbor.yml.j2
-    dest: "{{ opic_ha_stack }}/traefik/dynamic/harbor.yml"
+    dest: /etc/traefik/dynamic/harbor.yml
     mode: '0644'
-  notify: restart opic-traefik
 
-- name: ensure traefik started
+- name: copy tls cert and key from cert_output dir
+  ansible.builtin.copy:
+    src: "{{ cert_output_dir }}/{{ item }}"
+    dest: "/etc/traefik/tls/{{ item }}"
+    remote_src: true
+    mode: '0644'
+  loop: [tls.pem, tls-key.pem]
+  notify: restart traefik
+
+- name: copy platform CA for upstream verification
+  ansible.builtin.copy:
+    src: "{{ cert_platform_dir }}/ca/ca.pem"
+    dest: /etc/traefik/tls/ca.crt
+    remote_src: true
+    mode: '0644'
+  notify: restart traefik
+
+- name: render traefik.service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Traefik v3 edge router (OPIC)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=exec
+      ExecStart=/usr/local/bin/traefik --configfile /etc/traefik/traefik.yml
+      Restart=on-failure
+      RestartSec=3
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/traefik.service
+    mode: '0644'
+  notify:
+    - daemon reload
+    - restart traefik
+
+- name: ensure traefik enabled and started
   ansible.builtin.systemd:
-    name: opic-traefik
+    name: traefik
     enabled: true
     state: started
+    daemon_reload: true
 
-- name: wait for traefik healthy
-  ansible.builtin.command: docker inspect -f '{{ '{{' }}.State.Health.Status{{ '}}' }}' opic-traefik
-  register: health
-  changed_when: false
-  retries: 20
-  delay: 3
-  until: health.stdout == 'healthy'
+- name: wait traefik tls port
+  ansible.builtin.wait_for:
+    port: "{{ port_map.traefik_tls }}"
+    timeout: 60
