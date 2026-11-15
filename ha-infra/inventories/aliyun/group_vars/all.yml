@@ -118,6 +118,16 @@ harbor_external_database: true
 harbor_external_redis: true
 harbor_redis_sentinel_master_set: "mymaster"
 harbor_hostname: "registry.opic-dev.ccoe.vip"
+media_node_vpc: "10.0.0.59"   # ali159 VPC 内网（730MB 介质源）
+# 外部依赖：PG 走本机 haproxy rw（三台都有），Redis 走 Sentinel（三节点列表 + master set）
+db_host: "127.0.0.1"
+db_port: 5433
+db_user: harbor
+db_pass: "OpicHarbor2026Db"
+redis_host: "10.26.8.157,10.26.8.158,10.26.8.159"
+redis_port: 26379
+redis_pass: "opicRedis2026Lab"
+redis_sentinel_set: "mymaster"
 
 # ── 证书（对应新域名）──
 cert_platform_dir: "/opt/cfssl-platform"
@@ -172,7 +182,6 @@ required_ports: [443, 18701, 5433, 6379, 2479, 9092, 9000, 8000, 8080, 3000, 723
 proxy_env: {}
 
 # ── Redis / Kafka / MinIO（lab 口令）──
-redis_pass: "opicRedis2026Lab"
 redis_sentinel_master_set: "mymaster"
 redis_replicas: 3
 redis_data_dir: "/data/redis"

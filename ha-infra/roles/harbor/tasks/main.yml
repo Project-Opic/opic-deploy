@@ -22,11 +22,20 @@
     state: directory
     mode: '0755'
 
-- name: copy harbor offline installer
-  ansible.builtin.copy:
-    src: "{{ offline_dir }}/harbor-offline-installer-v{{ harbor_version }}.tgz"
-    dest: "{{ harbor_installer_dir }}/"
-    mode: '0644'
+- name: stat installer on target
+  ansible.builtin.stat:
+    path: "{{ harbor_installer_dir }}/harbor-offline-installer-v{{ harbor_version }}.tgz"
+  register: installer_stat
+
+- name: fetch installer from media node via VPC scp (730MB, control-machine link too slow)
+  ansible.builtin.command: >-
+    scp -o StrictHostKeyChecking=no {{ media_node_vpc }}:/opt/opic/offline/harbor-offline-installer-v{{ harbor_version }}.tgz
+    {{ harbor_installer_dir }}/
+  when: not (installer_stat.stat.exists and installer_stat.stat.size == 730279437)
+  register: media_copy
+  retries: 2
+  delay: 10
+  changed_when: true
 
 - name: extract installer
   ansible.builtin.unarchive:

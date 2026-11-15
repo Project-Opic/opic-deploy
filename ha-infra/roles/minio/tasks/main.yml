@@ -1,23 +1,104 @@
 ---
-- name: render minio docker-compose.yml (6-disk EC:3 ×3)
-  ansible.builtin.template:
-    src: docker-compose-minio.yml.j2
-    dest: "{{ opic_ha_stack }}/minio/docker-compose.yml"
-    mode: '0644'
-  notify: docker compose up minio
+# MinIO 分布式 EC ×3（RPM 安装 + systemd + mc 建桶验证）
+# 镜像路线不可达（Docker Hub/quay/加速器均失败）→ RPM（GitHub release 介质）
+- name: copy minio rpm + mc to targets
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: '0755'
+  loop:
+    - "{{ minio_rpm }}"
+    - mc_linux_amd64
 
-- name: ensure minio data directories
+- name: install minio rpm
+  ansible.builtin.dnf:
+    name: "/usr/local/bin/{{ minio_rpm }}"
+    state: present
+    disable_gpg_check: true
+
+- name: mc binary at /usr/local/bin/mc
+  ansible.builtin.command: mv /usr/local/bin/mc_linux_amd64 /usr/local/bin/mc
+  args:
+    creates: /usr/local/bin/mc
+
+- name: create /etc/minio
+  ansible.builtin.file:
+    path: /etc/minio
+    state: directory
+    mode: '0750'
+    owner: minio
+    group: minio
+
+- name: render /etc/minio/minio.env
+  ansible.builtin.template:
+    src: minio.env.j2
+    dest: /etc/minio/minio.env
+    mode: '0640'
+    owner: minio
+    group: minio
+  no_log: true
+  notify: restart minio
+
+- name: render vendor-override minio.service
+  ansible.builtin.template:
+    src: minio.service.j2
+    dest: /etc/systemd/system/minio.service
+    mode: '0644'
+  notify:
+    - daemon reload
+    - restart minio
+
+- name: ensure minio data directories owned by minio
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0750'
-    owner: 1000
-  loop:
-    - /data/minio/1
-    - /data/minio/2
-    - /data/minio/3
-    - /data/minio/4
+    owner: minio
+    group: minio
+  loop: "{{ minio_data_dirs }}"
 
-- name: docker compose up minio
-  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/minio/docker-compose.yml up -d
+- name: ensure minio enabled and started
+  ansible.builtin.systemd:
+    name: minio
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: wait minio api port
+  ansible.builtin.wait_for:
+    port: "{{ minio_api_port }}"
+    timeout: 240
+
+- name: wait cluster healthy (run_once)
+  ansible.builtin.shell: |
+    mc alias set local http://127.0.0.1:{{ minio_api_port }} {{ minio_root_user }} {{ minio_root_password }} >/dev/null 2>&1
+    mc admin info local 2>/dev/null | tail -5
+  register: minio_info
+  changed_when: false
+  retries: 24
+  delay: 10
+  until: "'drives' in minio_info.stdout | lower or 'minio' in minio_info.stdout | lower"
+  run_once: true
+  delegate_to: "{{ groups['minio_cluster'][0] }}"
+  no_log: true
+
+- name: create opic buckets (run_once)
+  ansible.builtin.shell: |
+    mc alias set local http://127.0.0.1:{{ minio_api_port }} {{ minio_root_user }} {{ minio_root_password }} >/dev/null &&
+    for b in harbor opic-media opic-backup; do mc mb -p local/$b 2>/dev/null || true; done &&
+    mc ls local
+  register: minio_buckets
   changed_when: true
+  run_once: true
+  delegate_to: "{{ groups['minio_cluster'][0] }}"
+  no_log: true
+
+- name: assert buckets
+  ansible.builtin.assert:
+    that:
+      - "'harbor' in minio_buckets.stdout"
+      - "'opic-media' in minio_buckets.stdout"
+      - "'opic-backup' in minio_buckets.stdout"
+    fail_msg: "minio buckets missing"
+    success_msg: "MinIO ×3 EC up, buckets harbor/opic-media/opic-backup created"
+  run_once: true

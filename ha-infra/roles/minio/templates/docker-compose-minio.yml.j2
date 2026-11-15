@@ -1,0 +1,22 @@
+# MinIO 分布式纠删码 ×3 节点（4 drives/node = 12 drives，EC 数据8/校验4）
+version: "3.8"
+services:
+  minio:
+    image: "{{ minio_image }}"
+    container_name: minio-{{ ansible_hostname }}
+    network_mode: host
+    restart: unless-stopped
+    command: >-
+      server
+      {% for h in groups['minio_cluster'] %}
+      http://{{ hostvars[h].ansible_host }}/data/minio/{1...4}
+      {% endfor %}
+      --address :{{ minio_api_port }} --console-address :{{ minio_console_port }}
+    environment:
+      MINIO_ROOT_USER: "{{ minio_root_user }}"
+      MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
+    volumes:
+      - /data/minio/1:/data/minio/1
+      - /data/minio/2:/data/minio/2
+      - /data/minio/3:/data/minio/3
+      - /data/minio/4:/data/minio/4

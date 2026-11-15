@@ -1,0 +1,19 @@
+[Unit]
+Description=MinIO distributed object storage (OPIC EC ×3)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=minio
+Group=minio
+EnvironmentFile=-/etc/minio/minio.env
+ExecStart=/usr/local/bin/minio server \
+  {% for h in groups['minio_cluster'] %}http://{{ hostvars[h].ansible_host }}/data/minio/{1...4} {% endfor %}\
+  --address :{{ minio_api_port }} --console-address :{{ minio_console_port }}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

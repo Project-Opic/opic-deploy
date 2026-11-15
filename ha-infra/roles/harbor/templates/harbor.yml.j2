@@ -18,6 +18,8 @@ database:
   username: {{ db_user | default('harbor') }}
   password: "{{ db_pass }}"
   ssl_mode: disable
+  name: harbor
+  create_db: true
   max_idle_conns: 50
   max_open_conns: 100
 {% endif %}
@@ -31,8 +33,11 @@ trivy:
 
 {% if not (harbor_standalone | default(false) | bool) %}
 external_redis:
-  host: "{{ redis_host }}"
-  port: {{ redis_port | default(6379) }}
+  hosts:
+{% for h in redis_host.split(',') %}
+    - {{ h }}:{{ redis_port }}
+{% endfor %}
+  sentinel_master_set: "{{ redis_sentinel_set | default('mymaster') }}"
   password: "{{ redis_pass }}"
   registry_db: 1
   jobservice_db: 2

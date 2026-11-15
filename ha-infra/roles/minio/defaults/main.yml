@@ -1,0 +1,6 @@
+---
+minio_dir: "/opt/opic/ha-stack/minio"
+minio_api_port: 9000
+minio_console_port: 9090
+minio_data_dirs: ["/data/minio/1", "/data/minio/2", "/data/minio/3", "/data/minio/4"]
+minio_rpm: "minio-20241013133411.0.0-1.x86_64.rpm"
