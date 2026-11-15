@@ -31,4 +31,3 @@ keepalived_state: "BACKUP"  # 两台都 BACKUP + nopreempt = 手工回切
 keepalived_advert_int: 1
 keepalived_unicast_src_ip: ""  # inventory 覆盖
 keepalived_unicast_peer: []  # inventory 覆盖
-keepalived_vip: "55.32.170.3/24 dev br0"

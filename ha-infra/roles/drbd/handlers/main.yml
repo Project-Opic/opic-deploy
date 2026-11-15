@@ -1,0 +1,4 @@
+---
+- name: restart drbd
+  ansible.builtin.command: drbdadm adjust {{ drbd_resource }}
+  changed_when: true

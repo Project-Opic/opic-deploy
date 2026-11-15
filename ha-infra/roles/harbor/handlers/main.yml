@@ -1,0 +1,15 @@
+---
+- name: daemon reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: harbor prepare
+  ansible.builtin.command: ./prepare
+  args:
+    chdir: "{{ harbor_installer_dir }}/harbor-installer"
+
+- name: harbor compose up
+  ansible.builtin.systemd:
+    name: opic-harbor
+    state: restarted
+    daemon_reload: true

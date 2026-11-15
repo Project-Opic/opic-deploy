@@ -19,7 +19,7 @@ EXPORT
     }
 
     CLIENT {
-        Clients = 55.32.170.0/24;
+        Clients = {{ ganesha_clients_cidr | default("10.26.8.0/24") }};
         Access_Type = RW;
         Squash = No_Root_Squash;
         Protocols = {{ ganesha_protocols }};

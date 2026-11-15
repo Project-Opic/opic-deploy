@@ -1,0 +1,17 @@
+# OPIC NFS-Ganesha — systemd unit（由 keepalived notify-master 拉起，本单元 enabled=off）
+[Unit]
+Description=NFS-Ganesha NFS server (OPIC HA NFS VIP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStartPre=/sbin/modprobe nfsd
+ExecStart=/usr/local/bin/ganesha.nfsd -f /etc/ganesha/ganesha.conf -L /var/log/ganesha.log -N NIV_EVENT
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=no
+LimitNOFILE=65536
+StartLimitBurst=0
+
+[Install]
+WantedBy=multi-user.target

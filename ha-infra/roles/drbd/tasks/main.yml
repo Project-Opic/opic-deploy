@@ -9,6 +9,34 @@
     state: present
   when: ansible_os_family in ['openEuler', 'Anolis']
 
+- name: install DRBD build dependencies
+  ansible.builtin.package:
+    name:
+              - gcc
+              - make
+              - flex
+              - bison
+              - pkgconf-pkg-config
+              - kmod-devel
+              - systemd-devel
+              - libudev-devel
+              - kernel-headers
+              - autoconf
+              - automake
+              - libtool
+              - libxslt    # drbd-utils doc 目标需 xsltproc
+    state: present
+
+- name: remove EPEL drbd userspace packages (source build 9.29.0 replaces them)
+  ansible.builtin.package:
+    name:
+      - drbd
+      - drbd-utils
+      - drbd-udev
+      - drbd-selinux
+    state: absent
+  when: drbd_remove_epel_pkgs | default(false) | bool
+
 - name: verify kernel-devel matches running kernel
   ansible.builtin.shell: |
     rpm -q kernel-devel --qf '%{version}-%{release}.%{arch}' 2>/dev/null | grep -q '{{ ansible_kernel }}'
@@ -45,16 +73,45 @@
   when: ansible_os_family == 'openEuler'
   # 仅首次需要；后续缓存于 cocci_cache/
 
+- name: stat compat patch
+  ansible.builtin.stat:
+    path: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/compat.patch"
+  register: compat_patch
+
 - name: apply compat patch
   ansible.builtin.command: patch -p1 -i compat.patch
   args:
     chdir: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}"
-  creates: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/.compat_applied"
+    creates: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/.compat_applied"
+  when: compat_patch.stat.exists
 
 - name: mark compat applied
   ansible.builtin.file:
     path: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/.compat_applied"
     state: touch
+  when: compat_patch.stat.exists
+
+# Alibaba Cloud Linux 3（5.10.134-19.202.al8）内核的 DAX 是厂商中间形态
+# （fs_dax_get_by_bdev 3 参 holder+ops，既非上游 ≤5.15 也非 ≥6.0），
+# DRBD 9.2.20 compat 探测无此形态 → drbd_dax_pmem.c 编译必炸；
+# 且 Kbuild.drbd 的条件（symvers 含 arch_wb_cache_pmem → CONFIG=n 但不定义
+# DAX_PMEM_IS_INCOMPLETE）导致 modpost undefined —— al8 上 9.2.20 固有缺陷。
+# lab 无 persistent memory → 无条件强制关闭 DAX（.o 与头守卫同步关）。
+- name: force-disable DRBD DAX (al8 vendor DAX backport not covered by 9.2.20 compat)
+  ansible.builtin.replace:
+    path: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/drbd/Kbuild.drbd"
+    regexp: '^CONFIG_DRBD_DAX := y$'
+    replace: 'CONFIG_DRBD_DAX := n'
+  when: drbd_disable_dax | default(false) | bool
+
+- name: define DAX_PMEM_IS_INCOMPLETE so header stubs take effect
+  ansible.builtin.blockinfile:
+    path: "{{ drbd_source_dir }}/drbd-{{ drbd_version }}/drbd/Kbuild.drbd"
+    marker: "# {mark} OPIC al8 DAX workaround"
+    insertafter: EOF
+    block: |
+      override EXTRA_CFLAGS += -DDAX_PMEM_IS_INCOMPLETE
+  when: drbd_disable_dax | default(false) | bool
 
 - name: compile DRBD kernel module
   ansible.builtin.make:
@@ -74,6 +131,13 @@
   register: drbd_mod
 
 # ── DRBD utils ──
+- name: copy drbd-utils source tarball (offline media)
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/drbd-utils-{{ drbd_utils_version }}.tar.gz"
+    dest: "{{ drbd_source_dir }}/"
+    mode: '0644'
+  when: offline_mode | bool
+
 - name: extract drbd-utils source
   ansible.builtin.unarchive:
     src: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}.tar.gz"
@@ -81,12 +145,49 @@
     remote_src: true
     creates: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}/configure"
 
-- name: configure drbd-utils
-  ansible.builtin.command: |
-    ./configure --prefix=/usr --localstatedir=/var --sysconfdir=/etc
+# drbd-utils 的 drbd-headers 也是 git submodule（archive 解出为空目录），
+# 按 v9.29.0 gitlink sha=40911d1c 从 codeload 单独取
+- name: copy drbd-headers submodule tarball (pinned 40911d1c)
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/drbd-headers-utils-40911d1c.tar.gz"
+    dest: "{{ drbd_source_dir }}/"
+    mode: '0644'
+  when: offline_mode | bool
+
+- name: extract drbd-headers into utils submodule dir
+  ansible.builtin.unarchive:
+    src: "{{ drbd_source_dir }}/drbd-headers-utils-40911d1c.tar.gz"
+    dest: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}/drbd-headers"
+    remote_src: true
+    extra_opts: [--strip-components=1]
+    creates: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}/drbd-headers/linux/drbd.h"
+
+# GitHub release tarball 不含 autotools 生成物（configure），只有 configure.ac
+- name: generate configure script (autogen.sh)
+  ansible.builtin.command: ./autogen.sh
   args:
     chdir: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}"
-    creates: Makefile
+    creates: configure
+
+# release tarball 无 .git → drbd_buildtag.sh 走 "Unpack again" 分支；
+# 预置带 GITHASH 的 header 让其走 reuse 分支（§同 drbd 内核侧 .drbd_git_revision）
+- name: seed drbd_buildtag.h (tarball has no .git)
+  ansible.builtin.copy:
+    dest: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}/user/shared/drbd_buildtag.h"
+    content: |
+      /* automatically generated. DO NOT EDIT. */
+      #define GITHASH "opic-aliyun-lab"
+      #define GITDIFF ""
+    mode: '0644'
+  args:
+    force: false
+
+- name: configure drbd-utils (without-manual — doc target needs online docbook DTD/XSL)
+  ansible.builtin.command: |
+    ./configure --prefix=/usr --localstatedir=/var --sysconfdir=/etc --without-manual
+  args:
+    chdir: "{{ drbd_source_dir }}/drbd-utils-{{ drbd_utils_version }}"
+    creates: config.status
 
 - name: compile drbd-utils
   ansible.builtin.make:
@@ -127,12 +228,12 @@
   failed_when: false  # 二次执行 "minor exists" 非零退出属正常（§二-23）
 
 - name: wait for peer connection
-  ansible.builtin.command: drbdadm status {{ drbd_resource }}
+  ansible.builtin.command: drbdsetup status {{ drbd_resource }} -v
   register: drbd_status
   changed_when: false
   retries: 30
   delay: 2
-  until: "'Established' in drbd_status.stdout or 'SyncTarget' in drbd_status.stdout or 'SyncSource' in drbd_status.stdout"
+  until: "'connection:Connected' in drbd_status.stdout"
   when: ansible_play_hosts | length > 1
 
 # ── Primary 提升与格式化（仅在第一台执行）──

@@ -1,0 +1,17 @@
+---
+# Harbor 角色默认值（lab 站点可在 inventories/*/group_vars 覆盖）
+harbor_version: "2.15.2"
+harbor_installer_dir: "/opt/opic/ha-stack/harbor-installer"
+harbor_data_volume: "/opt/opic/harbor/data"
+harbor_port: 18701          # harbor nginx http（Traefik 上游）
+harbor_tls_port: 18700      # haproxy external_url 端口
+harbor_admin_password: "Harbor12345"   # lab 默认，生产用 vault
+
+# 外部依赖（pg-ha 的 haproxy 5433 / redis 6379）
+db_host: ""     # 由 inventory/group_vars 提供（如 VIP 或 haproxy 地址）
+db_port: 5433
+db_user: harbor
+db_pass: ""     # vault/group_vars 提供
+redis_host: ""
+redis_port: 6379
+redis_pass: ""

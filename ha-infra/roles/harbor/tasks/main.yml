@@ -51,6 +51,13 @@
   creates: "{{ harbor_installer_dir }}/harbor-installer/docker-compose.yml"
 
 # ── P2.1 三件套 ──
+- name: render opic-harbor.service
+  ansible.builtin.template:
+    src: opic-harbor.service.j2
+    dest: /etc/systemd/system/opic-harbor.service
+    mode: '0644'
+  notify: daemon reload
+
 - name: set restart=no (P2.1 fix)
   ansible.builtin.replace:
     path: "{{ harbor_installer_dir }}/harbor-installer/docker-compose.yml"

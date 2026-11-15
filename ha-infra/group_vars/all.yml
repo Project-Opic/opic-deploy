@@ -1,4 +1,3 @@
-[global_vars]
 # ── 编译参数 ──
 drbd_version: "9.2.20"
 drbd_utils_version: "9.29.0"

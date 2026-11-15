@@ -1,0 +1,13 @@
+---
+- name: daemon reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart ganesha
+  ansible.builtin.systemd:
+    name: nfs-ganesha
+    state: restarted
+  # 设计口径：ganesha 由 keepalived notify 拉起；此处仅配置变更时重启
+  # （若当前未运行则忽略失败）
+  register: _grestart
+  failed_when: false

@@ -12,17 +12,64 @@
     name: nfsd
     state: present
 
-- name: extract Ganesha source
-  ansible.builtin.unarchive:
+- name: install Ganesha build dependencies (al8/Anolis)
+  ansible.builtin.package:
+    name:
+      - gcc
+      - gcc-c++
+      - make
+      - cmake
+      - bison
+      - flex
+      - libcap-devel
+      - libblkid-devel
+      - libuuid-devel
+      - libtirpc-devel
+      - nfs-utils
+      - dbus-devel
+      - krb5-devel
+      - openssl-devel
+      - libnfsidmap-devel
+      - dbus-glib-devel
+    state: present
+
+- name: create Ganesha source/build directory
+  ansible.builtin.file:
+    path: "{{ ganesha_source_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: ensure offline dir on target
+  ansible.builtin.file:
+    path: "{{ ganesha_offline_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: push offline media to target
+  ansible.builtin.copy:
     src: "{{ offline_dir }}/nfs-ganesha-{{ ganesha_version }}.tar.gz"
+    dest: "{{ ganesha_offline_dir }}/"
+    mode: '0644'
+
+- name: extract Ganesha source (offline media; src/libntirpc bundled in repacked tarball)
+  ansible.builtin.unarchive:
+    src: "{{ ganesha_offline_dir }}/nfs-ganesha-{{ ganesha_version }}.tar.gz"
     dest: "{{ ganesha_source_dir }}"
     remote_src: true
 
-- name: extract ntirpc
+# 修复后的离线包已把 libntirpc submodule 捆绑进 src/libntirpc；
+# 仅当包内缺失时才解独立 ntirpc 包。
+- name: check bundled libntirpc
+  ansible.builtin.stat:
+    path: "{{ ganesha_source_dir }}/nfs-ganesha-{{ ganesha_version }}/src/libntirpc/CMakeLists.txt"
+  register: bundled_ntirpc
+
+- name: extract ntirpc (fallback when not bundled)
   ansible.builtin.unarchive:
     src: "{{ offline_dir }}/ntirpc-{{ ganesha_ntirpc_version }}.tar.gz"
     dest: "{{ ganesha_source_dir }}/nfs-ganesha-{{ ganesha_version }}/src/libntirpc"
     remote_src: true
+  when: not bundled_ntirpc.stat.exists
 
 - name: cmake and build Ganesha
   ansible.builtin.shell: |

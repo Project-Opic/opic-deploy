@@ -1,0 +1,171 @@
+# ════════════════════════════════════════════════════════════
+# 阿里云 lab 站点（10.26.8.157/158/159，nebula 覆盖网）
+# 完整站点变量（不依赖仓库 group_vars/all.yml——其含 [global_vars] 顶层键 bug）
+# ════════════════════════════════════════════════════════════
+
+# ── 编译参数 ──
+drbd_version: "9.2.20"
+drbd_utils_version: "9.29.0"
+drbd_kernel_flavor: "alinux3"        # 非 openEuler → 跳过 spatch 在线补丁
+drbd_spatch_service: "https://spatch.as-a-service"
+
+ganesha_version: "15.7"
+ganesha_ntirpc_version: "6.3"
+
+# ── Pigsty ──
+pigsty_version: "v4.5.0"
+pigsty_release_url: "https://github.com/Vonng/pigsty/releases/download/{{ pigsty_version }}/pigsty-{{ pigsty_version }}.tgz"
+pigsty_home: "/data/pigsty"
+pigsty_node_image: "pigsty-node:12"
+pigsty_pg_data: "/data/postgres"
+pigsty_docker_data: "/data/docker"
+
+# ── 端口（沿用仓库默认）──
+port_map:
+  traefik_tls: 443
+  harbor_nginx: 18701
+  harbor_haproxy: 18700
+  pg_haproxy: 5433
+  pg_pgsql: 5432
+  pg_pgbouncer: 6432
+  redis: 6379
+  redis_sentinel: 26379
+  etcd_client: 2479
+  etcd_peer: 2480
+  kafka_client: 9092
+  kafka_ssl: 9093
+  kafka_exporter: 9308
+  minio_api: 9000
+  minio_console: 9090
+  casdoor_http: 8000
+  casdoor_https: 8001
+  zitadel_http: 8080
+  gitea_http: 3000
+  gitea_ssh: 2222
+  temporal_grpc: 7233
+  temporal_http: 7234
+  nats_client: 4222
+  nats_cluster: 6222
+  nats_monitor: 8222
+  vibe_https: 8443
+  patroni_rest: 8008
+  node_exporter: 9100
+  haproxy_exporter: 9101
+  nginx_exporter: 9113
+  blackbox_exporter: 9115
+  redis_exporter: 9121
+  pg_exporter: 9630
+  victoria_logs: 9428
+  victoria_traces: 10428
+  alertmanager: 9059
+  alertmanager_cluster: 9093
+  grafana: 3000
+  infra_nginx_http: 28080
+  infra_nginx_https: 28443
+  infra_silo: 9000
+
+# ── 全局路径 ──
+opic_base_domain: opic-dev.ccoe.vip
+opic_harbor_data: /opt/opic/harbor/data
+opic_ha_stack: /opt/opic/ha-stack
+opic_nfs_vip: 10.26.8.3
+opic_nfs_export: /srv/nfs/harbor
+opic_nfs_mount_opts: vers=4.2,hard,noatime,rsize=1048576,wsize=1048576,proto=tcp,timeo=600,retrans=2
+
+# ── DRBD ──
+drbd_resource: nfsdata
+drbd_disable_dax: true      # al8 厂商 DAX 中间形态，9.2.20 compat 不覆盖 → 关 DAX
+drbdadm_version: "9.29.0"   # 角色校验 drbdadm --version 期望值
+drbd_protocol: "C"
+drbd_resync_rate: "400M"             # nebula 隧道带宽，500G 全量同步 ~25min
+drbd_c_plan_ahead: "0"
+drbd_fs_type: "xfs"
+drbd_mount_point: "/srv/nfs/harbor"
+drbd_shared_secret: "opicAliLabS3cret2026"
+drbd_remove_epel_pkgs: true   # EPEL drbd-utils 9.28 与源码 9.29.0 路径冲突 → 先卸
+
+# ── Ganesha ──
+ganesha_export_id: 77
+ganesha_export_path: "/srv/nfs/harbor"
+ganesha_pseudo_path: "/srv/nfs/harbor"
+ganesha_protocols: "4"
+ganesha_transports: "TCP"
+ganesha_sec_type: "sys"
+ganesha_source_dir: "/opt/opic/build/nfs-ganesha"
+ganesha_clients_cidr: "10.26.8.0/24"
+
+# ── Keepalived ──
+keepalived_vrid: 201
+keepalived_interface: "nebula1"      # nebula 覆盖网（实测 proto112 可通）
+keepalived_vip: "10.26.8.3/24"
+keepalived_priority_master: 150
+keepalived_priority_backup: 100
+keepalived_state: "BACKUP"
+keepalived_advert_int: 1
+keepalived_notify_master: "/opt/opic/ha/notify-master.sh"
+keepalived_notify_backup: "/opt/opic/ha/notify-backup.sh"
+keepalived_notify_fault: "/opt/opic/ha/notify-backup.sh"
+keepalived_chk_script: "/opt/opic/ha/chk-drbd.sh"
+keepalived_chk_interval: 2
+keepalived_chk_timeout: 5
+keepalived_chk_fall: 2
+keepalived_chk_rise: 2
+
+# ── Harbor ──
+harbor_version: "2.15.2"
+harbor_installer_dir: "/opt/opic/ha-stack/harbor-installer"
+harbor_external_database: true
+harbor_external_redis: true
+harbor_redis_sentinel_master_set: "mymaster"
+harbor_hostname: "registry.opic-dev.ccoe.vip"
+
+# ── 证书（对应新域名）──
+cert_platform_dir: "/opt/cfssl-platform"
+cert_output_dir: "/opt/opic/harbor/tls"
+cert_san_hosts:
+  - "registry.opic-dev.ccoe.vip"
+  - "*.opic-dev.ccoe.vip"
+  - "10.26.8.3"
+  - "10.26.8.157"
+  - "10.26.8.158"
+  - "10.26.8.159"
+  - "localhost"
+  - "127.0.0.1"
+
+# ── 门禁 ──
+verify_gates_path: "/opt/opic/ha-stack/gates.tsv"
+verify_script_path: "/opt/opic/ha-stack/verify-step1.sh"
+
+# ── 离线介质：控制机本地目录，copy 模块直发目标机 ──
+offline_mode: true
+offline_dir: "{{ playbook_dir }}/../files/offline"
+offline_packages:
+  - "drbd-9.2.20.tar.gz"
+  - "drbd-utils-9.29.0.tar.gz"
+  - "drbd-headers-utils-40911d1c.tar.gz"
+  - "nfs-ganesha-15.7.tar.gz"
+  - "ntirpc-6.3.tar.gz"
+  - "harbor-offline-installer-v2.15.2.tgz"
+  - "pigsty-v4.5.0.tgz"
+  - "cfssl_1.7.1_linux_amd64"
+  - "cfssljson_1.7.1_linux_amd64"
+
+# ── Kafka / MinIO ──
+kafka_mode: combined
+kafka_security: scram-sha-512
+kafka_port: 9092
+kafka_ssl_port: 9093
+minio_type: silo
+minio_cluster: minio
+minio_data: '/data/minio/{1...2}'    # lab 每机 2 盘（500G×2，另 1 盘归 DRBD）
+
+# ── 前置核查阈值（4C/15G lab 放宽）──
+min_cpu_count: 4
+min_free_memory_gb: 6
+disk_min_size_gb: 100
+drbd_kernel_check: true
+ntp_server_expected: true
+required_ports: [443, 18701, 5433, 6379, 2479, 9092, 9000, 8000, 8080, 3000, 7233, 4222, 8008]
+
+# ── 代理：目标机直连外网（实测 github 200），清空 role 默认代理 ──
+proxy_env: {}
