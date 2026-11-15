@@ -92,7 +92,7 @@ ganesha_protocols: "4"
 ganesha_transports: "TCP"
 ganesha_sec_type: "sys"
 ganesha_source_dir: "/opt/opic/build/nfs-ganesha"
-ganesha_clients_cidr: "10.26.8.0/24"
+ganesha_clients_cidr: "10.26.8.0/24, 10.26.200.0/29"   # VIP 持有者自挂时源地址为 VIP，须同时放行 VIP 网段
 
 # ── Keepalived ──
 keepalived_vrid: 201
@@ -119,8 +119,9 @@ harbor_external_redis: true
 harbor_redis_sentinel_master_set: "mymaster"
 harbor_hostname: "registry.opic-dev.ccoe.vip"
 media_node_vpc: "10.0.0.59"   # ali159 VPC 内网（730MB 介质源）
-# 外部依赖：PG 走本机 haproxy rw（三台都有），Redis 走 Sentinel（三节点列表 + master set）
-db_host: "127.0.0.1"
+# 外部依赖：PG 走本机 haproxy rw（三台都有）。注意 harbor-core 在 bridge 容器内，
+# 127.0.0.1 指容器自身，必须用宿主机 real IP（ansible_host 按 host 惰性求值）
+db_host: "{{ ansible_host }}"
 db_port: 5433
 db_user: harbor
 db_pass: "OpicHarbor2026Db"

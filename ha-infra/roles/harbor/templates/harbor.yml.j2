@@ -1,4 +1,8 @@
 # Harbor v{{ harbor_version }} — {{ 'standalone (internal db/redis)' if harbor_standalone | default(false) else 'external_database + external_redis' }}
+# 注意：v2.15.2 prepare 解析器实测要求——
+#   1) 外部 DB 必须走 external_database.harbor 段（bare database: 会被当成内部 DB）
+#   2) sentinel redis 用 host: 逗号串 + sentinel_master_set，键名为 *_db_index
+#   3) jobservice/notification/log 为必填段（缺 max_job_workers 直接 KeyError）
 hostname: {{ harbor_hostname | default('registry.' + opic_base_domain) }}
 https:
   port: {{ harbor_tls_port | default(18700) }}
@@ -12,37 +16,57 @@ database:
   password: "{{ db_pass | default('Harbor12345') }}"
   ssl_mode: disable
 {% else %}
-database:
-  host: {{ db_host }}
-  port: {{ db_port | default(5433) }}
-  username: {{ db_user | default('harbor') }}
-  password: "{{ db_pass }}"
-  ssl_mode: disable
-  name: harbor
-  create_db: true
-  max_idle_conns: 50
-  max_open_conns: 100
+external_database:
+  harbor:
+    host: {{ db_host }}
+    port: {{ db_port | default(5433) }}
+    db_name: {{ harbor_db_name | default('harbor_db') }}
+    username: {{ db_user | default('harbor') }}
+    password: "{{ db_pass }}"
+    ssl_mode: disable
+    max_idle_conns: 50
+    max_open_conns: 100
 {% endif %}
 
 data_volume: {{ harbor_data_volume }}
 
 trivy:
   ignore_unfixed: false
-  skip_update: {{ 'true' if harbor_standalone | default(false) | bool else 'false' }}
+  skip_update: {{ 'true' if harbor_standalone | default(false) | bool else harbor_trivy_skip_update | default('true') }}
   offline_scan: false
 
 {% if not (harbor_standalone | default(false) | bool) %}
 external_redis:
-  hosts:
-{% for h in redis_host.split(',') %}
-    - {{ h }}:{{ redis_port }}
-{% endfor %}
+  # sentinel: comma-separated sentinel list + master set (redis+sentinel scheme)
+  host: {% for h in redis_host.split(',') %}{{ h }}:{{ redis_port }}{% if not loop.last %},{% endif %}{% endfor %}
+
   sentinel_master_set: "{{ redis_sentinel_set | default('mymaster') }}"
   password: "{{ redis_pass }}"
-  registry_db: 1
-  jobservice_db: 2
-  trivy_db: 5
+  registry_db_index: 1
+  jobservice_db_index: 2
+  trivy_db_index: 5
   timeout: 300
 {% endif %}
 
+jobservice:
+  max_job_workers: 10
+  max_job_duration_hours: 24
+  job_loggers:
+    - STD_OUTPUT
+    - FILE
+  logger_sweeper_duration: 1
+
+notification:
+  webhook_job_max_retry: 3
+  webhook_job_http_client_timeout: 3
+
+log:
+  level: info
+  local:
+    rotate_count: 50
+    rotate_size: 200M
+    location: /var/log/harbor
+
 external_url: https://{{ harbor_hostname | default('registry.' + opic_base_domain) }}:{{ harbor_tls_port | default(18700) }}
+
+_version: 2.15.0

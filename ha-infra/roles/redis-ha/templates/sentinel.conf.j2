@@ -1,7 +1,10 @@
 # Redis Sentinel — OPIC lab
 port {{ port_map.redis_sentinel }}
 bind {{ ansible_host }} 127.0.0.1
-protected-mode yes
+# protected-mode 关闭：sentinel 自身无密码时保护模式会拒绝所有非 loopback 连接；
+# 而 harbor(go-redis) 也不对 sentinel 本身做 AUTH（只对 master 连接发 AUTH），
+# 给 sentinel 加 requirepass 只会变成 NOAUTH 失败。安全由 bind（仅 nebula 内网 IP+127.0.0.1）保证。
+protected-mode no
 daemonize no
 
 sentinel resolve-hostnames yes

@@ -3,7 +3,7 @@ Description=OPIC Harbor watchdog (P2.1: restart=no + mount guard)
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'if mountpoint -q {{ harbor_data_volume }} && ! docker ps --format "{{ '{{' }} .Names {{ '}}' }}" | grep -q harbor-core; then cd {{ harbor_installer_dir }}/harbor-installer && docker compose up -d; fi'
+ExecStart=/bin/bash -c 'if mountpoint -q {{ harbor_data_volume }} && ! docker ps --format "{{ '{{' }} .Names {{ '}}' }}" | grep -q harbor-core; then cd {{ harbor_installer_dir }}/harbor && docker compose up -d; fi'
 
 [Install]
 WantedBy=multi-user.target

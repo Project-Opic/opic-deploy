@@ -8,8 +8,9 @@
     state: directory
     mode: '0755'
 
+# ganesha CLIENT 已放行 10.26.200.0/29，VIP 持有节点经 VIP 自挂已验证可行（勿回退成 real IP，否则 fstab 无法跟随 VIP 漂移）
 - name: mount NFS data volume (fstab hard)
-  ansible.builtin.mount:
+  ansible.posix.mount:
     path: "{{ harbor_data_volume }}"
     src: "{{ opic_nfs_vip }}:{{ opic_nfs_export }}"
     fstype: nfs4
@@ -36,28 +37,29 @@
   retries: 2
   delay: 10
   changed_when: true
+  timeout: 1800
 
 - name: extract installer
   ansible.builtin.unarchive:
     src: "{{ harbor_installer_dir }}/harbor-offline-installer-v{{ harbor_version }}.tgz"
     dest: "{{ harbor_installer_dir }}"
     remote_src: true
-    creates: "{{ harbor_installer_dir }}/harbor-installer/harbor.yml"
+    creates: "{{ harbor_installer_dir }}/harbor/harbor.yml"
 
 - name: render harbor.yml (external_database + external_redis)
   ansible.builtin.template:
     src: harbor.yml.j2
-    dest: "{{ harbor_installer_dir }}/harbor-installer/harbor.yml"
+    dest: "{{ harbor_installer_dir }}/harbor/harbor.yml"
     mode: '0600'
   notify:
     - harbor prepare
     - harbor compose up
 
-- name: run ./prepare
-  ansible.builtin.command: ./prepare
-  args:
-    chdir: "{{ harbor_installer_dir }}/harbor-installer"
-  creates: "{{ harbor_installer_dir }}/harbor-installer/docker-compose.yml"
+- name: run prepare
+  ansible.builtin.command:
+    cmd: ./prepare
+    chdir: "{{ harbor_installer_dir }}/harbor"
+    creates: "{{ harbor_installer_dir }}/harbor/docker-compose.yml"
 
 # ── P2.1 三件套 ──
 - name: render opic-harbor.service
@@ -69,9 +71,15 @@
 
 - name: set restart=no (P2.1 fix)
   ansible.builtin.replace:
-    path: "{{ harbor_installer_dir }}/harbor-installer/docker-compose.yml"
+    path: "{{ harbor_installer_dir }}/harbor/docker-compose.yml"
     regexp: 'restart: always'
     replace: 'restart: no'
+
+- name: create opic-harbor drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/opic-harbor.service.d
+    state: directory
+    mode: '0755'
 
 - name: render opic-mount-guard.conf
   ansible.builtin.copy:
@@ -96,6 +104,10 @@
     mode: '0644'
   notify: daemon reload
 
+# harbor.yml 变更时先执行 prepare + compose restart handler，再等待健康
+- name: flush handlers before start
+  meta: flush_handlers
+
 - name: enable and start harbor + watchdog
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -109,9 +121,10 @@
 
 - name: wait for harbor healthy
   ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ harbor_port }}/api/v2.0/health"
+    url: "https://127.0.0.1:{{ harbor_tls_port }}/api/v2.0/health"
     method: GET
     status_code: 200
+    validate_certs: false
   register: health
   retries: 30
   delay: 5

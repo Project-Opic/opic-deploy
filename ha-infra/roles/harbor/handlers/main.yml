@@ -6,7 +6,7 @@
 - name: harbor prepare
   ansible.builtin.command: ./prepare
   args:
-    chdir: "{{ harbor_installer_dir }}/harbor-installer"
+    chdir: "{{ harbor_installer_dir }}/harbor"
 
 - name: harbor compose up
   ansible.builtin.systemd:
