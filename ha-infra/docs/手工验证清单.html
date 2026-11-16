@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>手工验证清单</title>
+<style>
+:root {
+  --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --panel: #f6f8fa;
+  --border: #d1d9e0; --accent: #0969da; --code-bg: #f6f8fa;
+  --ok: #1a7f37; --warn: #9a6700;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; color: var(--fg); background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-size: 15px; line-height: 1.7;
+}
+.layout { display: flex; max-width: 1280px; margin: 0 auto; }
+nav#toc {
+  position: sticky; top: 0; align-self: flex-start; width: 260px; flex: 0 0 260px;
+  max-height: 100vh; overflow: auto; padding: 24px 12px 40px 20px;
+  border-right: 1px solid var(--border); font-size: 13px;
+}
+nav#toc a { display: block; color: var(--muted); text-decoration: none; padding: 2px 0; }
+nav#toc a:hover { color: var(--accent); }
+nav#toc .lvl-3 { padding-left: 14px; }
+main { flex: 1; min-width: 0; padding: 32px 40px 80px; }
+h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+h2 { font-size: 1.45em; margin-top: 2em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+h3 { font-size: 1.15em; margin-top: 1.6em; }
+h1, h2, h3 { scroll-margin-top: 16px; }
+a { color: var(--accent); }
+blockquote {
+  margin: 1em 0; padding: .5em 1em; color: var(--muted);
+  border-left: 4px solid var(--accent); background: var(--panel); border-radius: 0 6px 6px 0;
+}
+table {
+  border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 13.5px;
+  display: block; overflow-x: auto;
+}
+th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); white-space: nowrap; }
+tr:nth-child(even) td { background: #fbfcfd; }
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 85%; background: var(--code-bg); padding: .15em .4em; border-radius: 6px;
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; line-height: 1.5;
+}
+pre code { background: none; padding: 0; font-size: 13px; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 2.5em 0; }
+.meta {
+  color: var(--muted); font-size: 13px; margin-bottom: 24px;
+  padding: 10px 14px; background: var(--panel); border-radius: 8px; border: 1px solid var(--border);
+}
+@media (max-width: 900px) { nav#toc { display: none; } main { padding: 20px; } }
+@media print {
+  nav#toc { display: none; }
+  main { padding: 0; }
+  body { font-size: 12px; }
+  pre, table, blockquote { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav id="toc">
+<div style="font-weight:600;margin-bottom:8px;">目录</div>
+<a class="lvl-2" href="#a-ca">A. 域名入口（浏览器直接打开，证书为平台自签通配证书，需信任 CA 或点继续）</a>
+<a class="lvl-2" href="#b-ip-http">B. IP 直连（管理/监控面，HTTP）</a>
+<a class="lvl-2" href="#c-cli">C. 数据面（CLI 验证）</a>
+<a class="lvl-2" href="#d-harbor-docker">D. Harbor 端到端（docker 验证）</a>
+<a class="lvl-2" href="#e">E. 存储高可用演练（可选）</a>
+<a class="lvl-2" href="#sec">说明与注意</a>
+</nav>
+
+<main>
+<div class="meta">来源：<code>手工验证清单.md</code> · ha-infra 分支 feat/aliyun-lab · 生成于 2026-11-16</div>
+<h1 id="opic-ha-aliyun-lab">OPIC HA（aliyun lab）手工验证清单</h1>
+<blockquote>
+<p>生成时间：2026-11-16 17:56（所有 URL 均经实时探测，状态标注见各行）
+节点：10.26.8.157 / 158 / 159（三台等价入口，域名经通配 DNS → 任一节点 :443 → Traefik）
+⚠️ lab 口令，生产必须全部更换</p>
+</blockquote>
+<h2 id="a-ca">A. 域名入口（浏览器直接打开，证书为平台自签通配证书，需信任 CA 或点继续）</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>URL</th>
+<th>用途</th>
+<th>账号</th>
+<th>口令</th>
+<th>实测状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>https://registry.opic-dev.ccoe.vip/</td>
+<td>Harbor 镜像仓库 UI</td>
+<td><code>admin</code></td>
+<td><code>Harbor12345</code></td>
+<td>200 ✅（API basic-auth 实测 200）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>https://auth.opic-dev.ccoe.vip/ui/login/</td>
+<td>Zitadel 身份中心</td>
+<td><code>zitadel</code></td>
+<td><code>Zitadel!1</code>（<strong>首登强制改密</strong>）</td>
+<td>302→登录页 ✅</td>
+</tr>
+<tr>
+<td>3</td>
+<td>https://casdoor.opic-dev.ccoe.vip/</td>
+<td>Casdoor 认证</td>
+<td><code>admin</code></td>
+<td><code>123</code>（出厂内置）</td>
+<td>200 ✅（内置账号未 API 复验，以浏览器为准）</td>
+</tr>
+<tr>
+<td>4</td>
+<td>https://git.opic-dev.ccoe.vip/</td>
+<td>Gitea 代码库</td>
+<td><strong>首开为安装向导</strong>：设置页首个账号即管理员（建议 <code>admin</code>）</td>
+<td>自设</td>
+<td>200 ⚠️ 未初始化（INSTALL_LOCK=false），见下方说明①</td>
+</tr>
+<tr>
+<td>5</td>
+<td>https://vibe.opic-dev.ccoe.vip/</td>
+<td>code-server（工作区 /fs=NFS）</td>
+<td>—</td>
+<td><code>OpicVibe2026Lab</code></td>
+<td>302→登录 ✅</td>
+</tr>
+</tbody>
+</table>
+<h2 id="b-ip-http">B. IP 直连（管理/监控面，HTTP）</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>URL</th>
+<th>用途</th>
+<th>账号</th>
+<th>口令</th>
+<th>实测状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>6</td>
+<td>http://10.26.8.159:3000/</td>
+<td>Grafana</td>
+<td><code>admin</code></td>
+<td><code>OpicGrafana2026Lab</code></td>
+<td>302→登录 ✅</td>
+</tr>
+<tr>
+<td>7</td>
+<td>http://10.26.8.159:9095/</td>
+<td>Prometheus（无认证）</td>
+<td>—</td>
+<td>—</td>
+<td>302→/graphs ✅</td>
+</tr>
+<tr>
+<td>8</td>
+<td>http://10.26.8.157:9090/ （158/159 同）</td>
+<td>MinIO Console</td>
+<td><code>opicadmin</code></td>
+<td><code>OpicMinio2026Lab</code></td>
+<td>200 ✅</td>
+</tr>
+</tbody>
+</table>
+<h2 id="c-cli">C. 数据面（CLI 验证）</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>服务</th>
+<th>连接方式</th>
+<th>账号</th>
+<th>口令</th>
+<th>验证命令（在任一节点）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>9</td>
+<td>PostgreSQL 读写（haproxy）</td>
+<td><code>&lt;任一节点IP&gt;:5433</code></td>
+<td><code>postgres</code></td>
+<td><code>OpicPg2026Lab</code></td>
+<td><code>psql -h 10.26.8.157 -p 5433 -U postgres -c 'select 1'</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>PG 业务库</td>
+<td>同上</td>
+<td><code>harbor</code> / <code>casdoor</code> / <code>gitea</code> / <code>zitadel</code> 各库同名用户</td>
+<td>Harbor 库 <code>OpicHarbor2026Lab</code>；余见 group_vars</td>
+<td><code>\l</code> 应见 harbor_db/casdoor_db/gitea_db 及 zitadel 库</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Patroni REST</td>
+<td><code>&lt;节点&gt;:8008</code></td>
+<td>无</td>
+<td>—</td>
+<td><code>curl -s 10.26.8.157:8008/patroni</code>（应 JSON，Leader=ali157）</td>
+</tr>
+<tr>
+<td>12</td>
+<td>etcd（OPIC）</td>
+<td><code>&lt;节点&gt;:2479</code> mTLS</td>
+<td>证书</td>
+<td>—</td>
+<td><code>etcdctl --endpoints=https://10.26.8.159:2479 --cacert=/opt/opic/etcd/ssl/ca.crt --cert=/opt/opic/etcd/ssl/etcd.pem --key=/opt/opic/etcd/ssl/etcd-key.pem member list</code>（3 started）</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Redis</td>
+<td><code>&lt;节点&gt;:6379</code></td>
+<td>密码</td>
+<td><code>opicRedis2026Lab</code></td>
+<td><code>redis-cli -h 10.26.8.157 -a opicRedis2026Lab ping</code></td>
+</tr>
+<tr>
+<td>14</td>
+<td>Redis Sentinel</td>
+<td><code>&lt;节点&gt;:26379</code></td>
+<td>无</td>
+<td>—</td>
+<td><code>redis-cli -p 26379 sentinel get-master-addr-by-name mymaster</code></td>
+</tr>
+<tr>
+<td>15</td>
+<td>Kafka（SCRAM）</td>
+<td><code>&lt;节点&gt;:9092</code></td>
+<td><code>admin</code></td>
+<td><code>opicKafka2026Scram</code></td>
+<td><code>docker exec kafka-ali157 /opt/kafka/bin/kafka-topics.sh --bootstrap-server 10.26.8.157:9093 --describe --topic opic-smoke</code>（RF=3）</td>
+</tr>
+<tr>
+<td>16</td>
+<td>MinIO S3 API</td>
+<td><code>&lt;节点&gt;:9000</code></td>
+<td><code>opicadmin</code></td>
+<td><code>OpicMinio2026Lab</code></td>
+<td><code>mc alias make opic http://10.26.8.157:9000 opicadmin OpicMinio2026Lab &amp;&amp; mc ls opic</code>（桶 harbor/opic-media/opic-backup）</td>
+</tr>
+<tr>
+<td>17</td>
+<td>NATS</td>
+<td><code>&lt;节点&gt;:4222</code>；monitor <code>:8222</code>；exporter <code>:7777</code></td>
+<td>无</td>
+<td>—</td>
+<td><code>curl -s 10.26.8.157:8222/healthz</code>；<code>curl -s 10.26.8.157:8222/routez</code>（两对端）</td>
+</tr>
+<tr>
+<td>18</td>
+<td>Temporal</td>
+<td><code>&lt;节点&gt;:7233</code>（gRPC；无 Web UI）</td>
+<td>—</td>
+<td>—</td>
+<td><code>docker exec opic-temporal tctl cluster health</code>（SERVING）</td>
+</tr>
+</tbody>
+</table>
+<h2 id="d-harbor-docker">D. Harbor 端到端（docker 验证）</h2>
+<pre><code class="language-bash">docker login registry.opic-dev.ccoe.vip        # admin / Harbor12345
+docker pull busybox &amp;&amp; docker tag busybox registry.opic-dev.ccoe.vip/opic/smoke:1
+docker push registry.opic-dev.ccoe.vip/opic/smoke:1
+# 在另一台节点 pull 验证跨节点：docker pull registry.opic-dev.ccoe.vip/opic/smoke:1
+</code></pre>
+<h2 id="e">E. 存储高可用演练（可选）</h2>
+<pre><code class="language-bash">ssh 10.26.8.157 systemctl stop keepalived      # VIP 漂到 158
+ping -c2 10.26.200.1                            # 应通
+ssh 10.26.8.159 mountpoint /opt/opic/harbor/data # 仍为挂载点（VIP 源）
+ssh 10.26.8.157 systemctl start keepalived      # 回切（prio 150&gt;100）
+</code></pre>
+<h2 id="sec">说明与注意</h2>
+<p>① <strong>Gitea 尚未初始化</strong>（首次部署后未走安装向导）：打开 #4 URL 会先见 Installation 向导，数据库已预配（host 网络经本机 5433），确认向导即可创建首个管理员。若希望跳过 UI，可在 157 执行：
+<code>docker exec -u git opic-gitea gitea admin user create --username admin --password '&lt;自设&gt;' --email admin@opic.local --admin</code> 后再经域名登录。
+② <strong>Casdoor</strong> 出厂内置 <code>admin/123</code>；本次部署未改（清单如实标注），浏览器登录后请到 Users 改密。
+③ 域名解析：<code>*.opic-dev.ccoe.vip</code> 通配 A 记录指向 157/158/159 三台，任意一台均可验证全部路由。
+④ 本机若在代理环境测试命令行，记得 <code>-noproxy '*'</code>，否则 <code>--resolve</code>/直连会被代理吞掉。
+⑤ 外部干扰提醒：159 是 K8s v1.36 master-01；若域名忽然 404+nginx 页，先查 <code>nft list ruleset | grep 'dnat to'</code> 是否有 K8s ingress DNAT 抢 :443。</p>
+</main>
+</div>
+</body>
+</html>

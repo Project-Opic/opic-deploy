@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPIC-HA-部署培训手册</title>
+<style>
+:root {
+  --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --panel: #f6f8fa;
+  --border: #d1d9e0; --accent: #0969da; --code-bg: #f6f8fa;
+  --ok: #1a7f37; --warn: #9a6700;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; color: var(--fg); background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-size: 15px; line-height: 1.7;
+}
+.layout { display: flex; max-width: 1280px; margin: 0 auto; }
+nav#toc {
+  position: sticky; top: 0; align-self: flex-start; width: 260px; flex: 0 0 260px;
+  max-height: 100vh; overflow: auto; padding: 24px 12px 40px 20px;
+  border-right: 1px solid var(--border); font-size: 13px;
+}
+nav#toc a { display: block; color: var(--muted); text-decoration: none; padding: 2px 0; }
+nav#toc a:hover { color: var(--accent); }
+nav#toc .lvl-3 { padding-left: 14px; }
+main { flex: 1; min-width: 0; padding: 32px 40px 80px; }
+h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+h2 { font-size: 1.45em; margin-top: 2em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+h3 { font-size: 1.15em; margin-top: 1.6em; }
+h1, h2, h3 { scroll-margin-top: 16px; }
+a { color: var(--accent); }
+blockquote {
+  margin: 1em 0; padding: .5em 1em; color: var(--muted);
+  border-left: 4px solid var(--accent); background: var(--panel); border-radius: 0 6px 6px 0;
+}
+table {
+  border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 13.5px;
+  display: block; overflow-x: auto;
+}
+th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); white-space: nowrap; }
+tr:nth-child(even) td { background: #fbfcfd; }
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 85%; background: var(--code-bg); padding: .15em .4em; border-radius: 6px;
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; line-height: 1.5;
+}
+pre code { background: none; padding: 0; font-size: 13px; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 2.5em 0; }
+.meta {
+  color: var(--muted); font-size: 13px; margin-bottom: 24px;
+  padding: 10px 14px; background: var(--panel); border-radius: 8px; border: 1px solid var(--border);
+}
+@media (max-width: 900px) { nav#toc { display: none; } main { padding: 20px; } }
+@media print {
+  nav#toc { display: none; }
+  main { padding: 0; }
+  body { font-size: 12px; }
+  pre, table, blockquote { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav id="toc">
+<div style="font-weight:600;margin-bottom:8px;">目录</div>
+<a class="lvl-2" href="#1">1. 架构总览</a>
+<a class="lvl-3" href="#1-1-inventories-aliyun-hosts-yml">1.1 主机组（inventories/aliyun/hosts.yml）</a>
+<a class="lvl-3" href="#1-2">1.2 网络要点</a>
+<a class="lvl-3" href="#1-3">1.3 关键端口</a>
+<a class="lvl-2" href="#2">2. 新环境前置条件</a>
+<a class="lvl-2" href="#3">3. 新环境适配清单（改什么）</a>
+<a class="lvl-2" href="#4-playbook">4. 安装步骤（playbook 顺序即依赖顺序）</a>
+<a class="lvl-2" href="#5">5. 各层实现要点与实测坑（培训核心）</a>
+<a class="lvl-3" href="#5-1-drbd-ganesha-keepalived">5.1 存储层（DRBD + Ganesha + keepalived）</a>
+<a class="lvl-3" href="#5-2-harbor-2-15-2-prepare">5.2 Harbor 2.15.2（prepare 解析器三个坑，全是实测）</a>
+<a class="lvl-3" href="#5-3">5.3 数据面</a>
+<a class="lvl-3" href="#5-4-vibe">5.4 应用面（五件套 + vibe）</a>
+<a class="lvl-3" href="#5-5-traefik-v3">5.5 入口 Traefik v3</a>
+<a class="lvl-3" href="#5-6-pki-14-security">5.6 PKI（14.security）</a>
+<a class="lvl-3" href="#5-7-13-monitoring-pigsty">5.7 监控（13.monitoring，已去 Pigsty 空壳）</a>
+<a class="lvl-2" href="#6">6. 验收门禁</a>
+<a class="lvl-2" href="#7">7. 与外部系统共存（真实事故复盘）</a>
+<a class="lvl-2" href="#8-lab">8. 凭据与访问（lab 环境；生产必须全部更换）</a>
+<a class="lvl-2" href="#9">9. 仓库与介质管理</a>
+<a class="lvl-2" href="#10">10. 新人上手路线</a>
+</nav>
+
+<main>
+<div class="meta">来源：<code>OPIC-HA-部署培训手册.md</code> · ha-infra 分支 feat/aliyun-lab · 生成于 2026-11-16</div>
+<h1 id="opic-ha">OPIC HA 基础设施 · 部署培训手册</h1>
+<blockquote>
+<p>适用：新人培训 + 新环境安装。
+基准：分支 <code>feat/aliyun-lab</code>（2026-11-16 在阿里云 lab 三台 10.26.8.157/158/159 全绿验收）。
+原仓库骨架版：<code>main</code>（ha-infra 角色多为空壳/Pigsty 委托）；本手册描述的是<strong>原生实现版</strong>，全部角色已实测落地。</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 架构总览</h2>
+<p>三台机器承载一套「存储高可用 + 数据面 + 应用面 + 入口 + 监控」的全栈 HA 环境：</p>
+<pre><code>                 *.opic-dev.ccoe.vip (DNS → 三台任一)
+                          │ :443
+                  ┌───────▼───────┐
+                  │ Traefik ×3    │  二进制+systemd，dynamic 路由/证书
+                  └───────┬───────┘
+      registry ──► Harbor ×3（haproxy:18700/nginx，数据在 NFS-VIP）
+      auth     ──► Zitadel v2.55（apps 两台）
+      casdoor  ──► Casdoor（apps 两台）
+      git      ──► Gitea 1.22（apps[0]，数据在 NFS）
+      vibe     ──► code-server（vibe 节点，/fs = NFS 工作区）
+                          │
+  ┌───────────────────────┼─────────────────────────────┐
+  │ pg_cluster ×3         │ apps ×2          infra ×1(159)│
+  │ etcd 2479/2480        │ temporal         Prometheus 9095│
+  │ Patroni+PG18 (5433)   │ (casdoor/zitadel/│ Grafana   3000│
+  │ Redis+Sentinel×3      │  gitea)          └───────────────┘
+  │ Kafka KRaft×3 (RF3)   │
+  │ MinIO EC×3 (9000)     │   nats JetStream ×3 (4222/6222/8222/7777)
+  └───────────────────────┘
+  存储层：DRBD(nfsdata) ×2(157/158) + keepalived VIP 10.26.200.1
+          + Ganesha NFS(export /srv/nfs/harbor) → 三台经 VIP 挂载 /opt/opic/harbor/data
+</code></pre>
+<h3 id="1-1-inventories-aliyun-hosts-yml">1.1 主机组（inventories/aliyun/hosts.yml）</h3>
+<table>
+<thead>
+<tr>
+<th>组</th>
+<th>成员</th>
+<th>承载</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>harbor</td>
+<td>157,158,159</td>
+<td>Harbor、Traefik、NFS 客户端</td>
+</tr>
+<tr>
+<td>nfs_vip</td>
+<td>157(主,pri150), 158(备,pri100)</td>
+<td>DRBD + keepalived + Ganesha</td>
+</tr>
+<tr>
+<td>pg_cluster</td>
+<td>157(primary),158,159</td>
+<td>etcd / Patroni+PG / Redis / Kafka / MinIO / NATS</td>
+</tr>
+<tr>
+<td>apps</td>
+<td>157,158</td>
+<td>Casdoor / Zitadel / Gitea / Temporal</td>
+</tr>
+<tr>
+<td>vibe</td>
+<td>157</td>
+<td>code-server</td>
+</tr>
+<tr>
+<td>infra</td>
+<td>159</td>
+<td>Prometheus / Grafana</td>
+</tr>
+</tbody>
+</table>
+<h3 id="1-2">1.2 网络要点</h3>
+<ul>
+<li><strong>nebula1 网卡（10.26.8.0/24）</strong>：管理+集群互联，keepalived 单播走它。</li>
+<li><strong>VPC eth0（10.0.0.x）</strong>：DRBD 数据链路（实测 0.16ms 优于 nebula 隧道）与大介质传输。</li>
+<li><strong>VIP 10.26.200.1/29</strong>：独立网段，nebula 需配 <code>unsafeNetworks=10.26.200.0/29</code>（否则 VIP 不可路由）。NFS 挂载源<strong>必须用 VIP</strong>（随漂移），不能用 real IP。</li>
+</ul>
+<h3 id="1-3">1.3 关键端口</h3>
+<table>
+<thead>
+<tr>
+<th>服务</th>
+<th>端口</th>
+<th>服务</th>
+<th>端口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Traefik TLS</td>
+<td>443</td>
+<td>Harbor nginx/haproxy</td>
+<td>18701 / 18700</td>
+</tr>
+<tr>
+<td>PG haproxy rw</td>
+<td>5433</td>
+<td>PG 直连 / pgbouncer</td>
+<td>5432 / 6432</td>
+</tr>
+<tr>
+<td>etcd client/peer</td>
+<td><strong>2479 / 2480</strong></td>
+<td>Redis / Sentinel</td>
+<td>6379 / 26379</td>
+</tr>
+<tr>
+<td>Kafka</td>
+<td>9092(SCRAM) / 9093</td>
+<td>MinIO API/Console</td>
+<td>9000 / 9090</td>
+</tr>
+<tr>
+<td>NATS client/cluster/monitor/exporter</td>
+<td>4222/6222/8222/7777</td>
+<td>Temporal gRPC</td>
+<td>7233</td>
+</tr>
+<tr>
+<td>Casdoor / Zitadel / Gitea / Gitea-SSH</td>
+<td>8000 / 8080 / 3000 / 2222</td>
+<td>code-server</td>
+<td>8443</td>
+</tr>
+<tr>
+<td>Patroni REST</td>
+<td>8008</td>
+<td>Prometheus / Grafana</td>
+<td>9095 / 3000</td>
+</tr>
+<tr>
+<td>node_exporter / pg_exporter</td>
+<td>9100 / 9187</td>
+<td>K8s apiserver(外部集群)</td>
+<td>6443</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2">2. 新环境前置条件</h2>
+<ol>
+<li><strong>机器</strong>：≥3 台 Linux（lab 实测 Alibaba Cloud Linux 3 / al8 内核）。每机建议 ≥4C/15G，<strong>≥3 块空数据盘</strong>（1 块归 DRBD 镜像盘、2 块归 MinIO EC；MinIO 数据目录 <code>/data/minio/{1...2}</code>）。</li>
+<li><strong>网络</strong>：机器间二层/三层可达；若用覆盖网（nebula），确认 unsafeNetworks 含 VIP 段。DNS 需有 <code>*.&lt;base_domain&gt;</code> 通配 A 记录指向三台（或任一 LB）。</li>
+<li><strong>SSH</strong>：控制机 root 免密登录三台。</li>
+<li><strong>Python</strong>：目标机有 python3（inventory 里 <code>ansible_python_interpreter</code> 指到实际路径，需带 <code>requests</code>）。</li>
+<li><strong>离线介质</strong>：<code>files/offline/</code> 已含 DRBD 源码包、etcd、harbor offline installer、minio RPM+mc、ganesha、cfssl、监控四件套等。以下两个 <strong>&gt;100MB 二进制不入 git</strong>（GitHub 硬限），新环境需自行下载放入：
+   - <code>traefik_v3.1.5</code>（→ traefik.io 官方二进制）
+   - <code>grafana-11.6.0.x86_64.rpm</code>（→ dl.grafana.com）</li>
+<li><strong>镜像预热</strong>：Docker 镜像（harbor 由 offline installer 自带；gitea/zitadel/casdoor/temporal/nats/minio-exporter 走 docker pull）。目标机拉镜像不稳时，用「157 <code>docker save</code> → VPC scp → 他机 <code>docker load</code>」兜底。</li>
+</ol>
+<hr />
+<h2 id="3">3. 新环境适配清单（改什么）</h2>
+<p>以 <code>inventories/aliyun/</code> 为模板整目录复制改名（如 <code>inventories/prod/</code>），逐项修改：</p>
+<table>
+<thead>
+<tr>
+<th>变量（group_vars/all.yml）</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>opic_base_domain</code></td>
+<td>平台域名基座（所有 <code>&lt;svc&gt;.&lt;base&gt;</code> 路由与通配证书 SAN 由它派生）</td>
+</tr>
+<tr>
+<td><code>opic_nfs_vip</code> / <code>keepalived_vip</code></td>
+<td>VIP 网段；覆盖网需允许该段直路由</td>
+</tr>
+<tr>
+<td>hosts.yml 中 <code>ansible_host</code>、<code>peer_address</code>、<code>drbd_disk</code>、<code>keepalived_unicast_*</code></td>
+<td>按新机 IP/盘符填</td>
+</tr>
+<tr>
+<td><code>ganesha_clients_cidr</code></td>
+<td>必须同时含 real IP 网段 <strong>和 VIP 网段</strong>（VIP 持有者自挂源地址是 VIP）</td>
+</tr>
+<tr>
+<td><code>cert_san_hosts</code></td>
+<td>通配域名 + 各节点 IP + VIP</td>
+</tr>
+<tr>
+<td>各口令：<code>db_pass</code>、<code>redis_pass</code>、<code>kafka_admin_password</code>、<code>minio_root_password</code>、<code>drbd_shared_secret</code>、zitadel masterkey（<strong>必须 32 字节</strong>）、vibe/grafana 口令</td>
+<td>生产必须全换</td>
+</tr>
+<tr>
+<td><code>harbor_hostname</code></td>
+<td>= <code>registry.&lt;base&gt;</code></td>
+</tr>
+<tr>
+<td><code>media_node_vpc</code></td>
+<td>介质中转机 VPC IP</td>
+</tr>
+<tr>
+<td><code>db_host: "{{ ansible_host }}"</code></td>
+<td><strong>保持 host 级惰性求值</strong>——harbor-core 在 bridge 容器里，127.0.0.1 指容器自身</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>注意：<code>main</code> 分支的 <code>group_vars/all.yml</code> 含 <code>[global_vars]</code> 顶层键 bug，站点变量请写全（inventory 目录内），不依赖仓库根 group_vars。</p>
+</blockquote>
+<hr />
+<h2 id="4-playbook">4. 安装步骤（playbook 顺序即依赖顺序）</h2>
+<pre><code class="language-bash">cd ha-infra
+INV=inventories/&lt;site&gt;/hosts.yml        # 以下全部 ansible-playbook -i $INV
+
+ansible-playbook playbooks/00.pre-check.yml   # 资源阈值/端口占用/时钟检查
+ansible-playbook playbooks/01.drbd.yml        # DRBD 源码编译+建 res（al8 编译链已修）
+ansible-playbook playbooks/02.ganesha.yml     # NFS-Ganesha 源码安装+export
+ansible-playbook playbooks/03.keepalived.yml  # VIP+DRBD 探活脚本，VIP 落到 157
+ansible-playbook playbooks/14.security.yml    # ★ cfssl CA+通配证书（harbor/traefik 依赖，先建）
+ansible-playbook playbooks/05.etcd.yml        # etcd ×3（serial:1 滚动；unit=opic-etcd.service）
+ansible-playbook playbooks/06.pg-ha.yml       # Patroni+PG18+haproxy5433+pgbouncer（预建各业务库）
+ansible-playbook playbooks/07.redis-ha.yml    # Redis+Sentinel ×3（protected-mode no）
+ansible-playbook playbooks/08.kafka.yml       # Kafka KRaft ×3 + SCRAM，断言 RF3
+ansible-playbook playbooks/09.minio.yml       # MinIO EC ×3 + 桶（harbor/opic-media/opic-backup）
+ansible-playbook playbooks/04.harbor-deploy.yml  # Harbor ×3（详见 §5.2 模板要点）
+ansible-playbook playbooks/10.apps.yml        # play1: apps→casdoor,zitadel,gitea,temporal
+                                              # play2: pg_cluster→nats(JetStream×3)
+ansible-playbook playbooks/11.vibe.yml        # code-server + /fs NFS 挂载
+ansible-playbook playbooks/12.traefik.yml     # 443 入口：dynamic tls.yml + harbor/vibe/apps 路由
+ansible-playbook playbooks/13.monitoring.yml  # node/pg_exporter ×3 + Prometheus/Graphana@infra
+ansible-playbook playbooks/15.verify.yml      # ★ 稳态门禁（见 §6），退出码 0 = 全绿
+</code></pre>
+<p>顺序上的硬依赖：
+- <code>14.security</code> 在 harbor/traefik 之前（证书文件被两边 copy）。
+- <code>05.etcd → 06.pg-ha</code>（Patroni DCS）；<code>06 → 04.harbor</code>（harbor 外部 DB 走本机 5433，且库 <code>harbor_db</code> 由 pg-ha 预建）。
+- <code>07.redis → 04.harbor</code>（sentinel 组网先就绪）。
+- <code>01/02/03 → 04</code>（三台 <code>/opt/opic/harbor/data</code> 必须是 VIP 源 NFS mountpoint）。
+- <code>12.traefik</code> 放最后段（路由 upstream 需已监听）。</p>
+<hr />
+<h2 id="5">5. 各层实现要点与实测坑（培训核心）</h2>
+<h3 id="5-1-drbd-ganesha-keepalived">5.1 存储层（DRBD + Ganesha + keepalived）</h3>
+<ul>
+<li>al8 上 DRBD 9.2.20 需源码编译：autogen、buildtag seed、drbd-headers submodule、<code>--without-manual</code>、<strong>先卸 EPEL drbd-utils(9.28)</strong>（与源码 9.29 路径冲突）、<code>drbd_disable_dax: true</code>（al8 厂商 DAX 中间形态不兼容）。</li>
+<li>keepalived 探 DRBD（chk-drbd.sh）+ notify 脚本挂/卸 <code>/srv/nfs/harbor</code>。</li>
+<li><strong>Ganesha CLIENT 必须放行 VIP 网段</strong>：VIP 持有节点经 VIP 自挂 NFS，fstab 才能随 VIP 漂移（否则 VIP 迁移后挂载断）。</li>
+<li>DRBD 走 VPC 内网（比 nebula 隧道快两个量级）；<code>resync_rate=400M</code> 时 500G 全量约 25min。</li>
+</ul>
+<h3 id="5-2-harbor-2-15-2-prepare">5.2 Harbor 2.15.2（prepare 解析器三个坑，全是实测）</h3>
+<ol>
+<li>外部数据库必须写在 <strong><code>external_database.harbor</code></strong> 段；裸 <code>database:</code> 会被当内部 DB（host 强制 postgresql）。</li>
+<li>Sentinel redis 只认 <strong><code>host:</code> 逗号串 + <code>sentinel_master_set</code></strong>（<code>hosts:</code> 列表键无效）；DB 序号键名 <code>*_db_index</code>。</li>
+<li>2.15 无默认强取键：<code>jobservice.max_job_workers/max_job_duration_hours/job_loggers/logger_sweeper_duration</code>、<code>notification.webhook_job_max_retry/webhook_job_http_client_timeout</code>、<code>log.level/local</code>——缺任一 prepare 直接 KeyError。
+- 2.15 <strong>无 create_db</strong>：<code>harbor_db</code> 须在 PG 上预建（pg-ha 已做）。
+- 用自研 <code>opic-harbor.service</code> + watch timer 管理（installer 自带 unit 的坑：WorkingDirectory 必须是解压产物 <code>harbor/</code> 而非 <code>harbor-installer/</code>）。
+- 排错实录：bridge 容器内 <code>127.0.0.1</code>≠宿主机（<code>db_host</code> 用 real IP）；harbor-core 连 redis broken pipe = sentinel <code>protected-mode no</code>（给 sentinel 加密码没用，go-redis 不对 sentinel 本身 AUTH）；改完配置 <strong>必须 <code>meta: flush_handlers</code> 再跑 prepare</strong>，否则 core 里还是旧 env。
+- 端到端验收：<code>docker login registry.&lt;base&gt;:443</code> → push/pull <code>opic/smoke-*</code> 跨节点 → NFS 落盘可见。</li>
+</ol>
+<h3 id="5-3">5.3 数据面</h3>
+<ul>
+<li><strong>etcd</strong>：unit 名 <strong><code>opic-etcd.service</code></strong>（勿用裸 <code>etcd.service</code>——见 §7 K8s 共存事故）。二进制 + cfssl mTLS（证书在 <code>/opt/opic/etcd/ssl</code>），serial:1 滚动。</li>
+<li><strong>Patroni+PG18</strong>：etcd DCS 带 TLS；haproxy 5433=rw、pgbouncer 6432；patroni REST 8008 匿名 <code>/metrics</code> 可被 Prometheus 抓。分歧修复路线：pg_rewind 失败（"servers diverged"）→ 停 patroni → <code>mv /data/pg/18 &lt;备份&gt;</code> → 起 patroni 自动 basebackup。</li>
+<li><strong>Redis Sentinel</strong>：<code>protected-mode no</code>（sentinel 自身无密码时对所有非 loopback 一律 -DENIED）。master set 名 <code>mymaster</code>。</li>
+<li><strong>Kafka</strong>：KRaft×3，SCRAM-SHA-512，验收用 topic <code>opic-smoke</code> RF3 describe。</li>
+<li><strong>MinIO</strong>：RPM 路线（镜像不可达时），EC 每机 2 盘；<code>/minio/v2/metrics/cluster</code> <strong>不支持 Basic Auth</strong>——env <code>MINIO_PROMETHEUS_AUTH_TYPE=public</code>。</li>
+<li><strong>NATS</strong>：JetStream×3（放 pg_cluster 而非 apps）；conf 变更 handler <code>up -d --force-recreate</code>；数据目录 chown 1000。<strong>nats-server 2.10 无内置 /metrics</strong>——用官方 <code>natsio/prometheus-nats-exporter:0.15.0</code> sidecar(7777)；其 flag 均为布尔，<strong>server URL 是位置参数</strong>，0.15.0 无 <code>-subsz</code>（是 <code>-subz</code>）。nats:2.10 镜像无 wget/curl → compose 级 healthcheck 会永远 unhealthy，健康把关放 tasks 的 uri 断言。</li>
+</ul>
+<h3 id="5-4-vibe">5.4 应用面（五件套 + vibe）</h3>
+<ul>
+<li><strong>Casdoor</strong>：beego 读 <code>/conf/app.conf</code>（挂 0644，0600 会挡容器 uid）；DSN 用 <code>postgres://...?sslmode=disable</code>（不是 <code>ssl_mode</code>）。</li>
+<li><strong>Zitadel</strong>：v2.3.3 对 env 库名解析有缺陷 → <strong>v2.55.0 + config-YAML + <code>Admin.ExistingDatabase</code></strong>；masterkey <strong>32 字节</strong>；反代终结 TLS → <code>--tlsMode external</code>；实例按 ExternalDomain 拦 Host——必须经域名或带 Host 头访问 <code>/ui/login/</code>；init 需 DB 角色有 CREATEROLE/CREATEDB；默认 init 账号 <code>zitadel/Zitadel!1</code>（首次登录改密）。</li>
+<li><strong>Gitea</strong>：host 网络时容器内 OpenSSH 会抢宿主 22 → <code>DISABLE_SSH=true</code> + 内置 SSH 2222；该版本 <code>/api/health</code> 404 → 健康检查用 <code>/</code>。</li>
+<li><strong>Temporal</strong>：auto-setup 1.24 驱动名 <strong><code>postgres12</code></strong>；host 网络必须 <code>BIND_ON_IP: "0.0.0.0"</code> + <strong><code>TEMPORAL_BROADCAST_ADDRESS</code></strong>（0.0.0.0 监听必须显式 broadcast，env 名以镜像内 config_template 为准）；验收 <code>tctl cluster health</code> = SERVING。</li>
+<li><strong>Vibe</strong>：code-server 二进制 + systemd + <code>/fs</code>（NFS <code>&lt;export&gt;/vibe</code>，0777 供容器写）。</li>
+</ul>
+<h3 id="5-5-traefik-v3">5.5 入口 Traefik v3</h3>
+<ul>
+<li>静态配置 <code>tls:</code> <strong>不支持 certificates</strong>——证书放 dynamic 目录 <code>tls.yml</code>（certFile/keyFile 指 /etc/traefik/tls），否则出示 TRAEFIK DEFAULT CERT。</li>
+<li>LB healthCheck <strong>只认 2xx</strong>：302/404 都会误摘后端。gitea 探 <code>/</code>；casdoor 探测接口回 500 → 不设 healthCheck；zitadel /ui/login 302 → 不设。</li>
+<li>路由文件按域拆分：<code>dynamic/{tls,harbor,vibe,apps}.yml</code>；改完 notify restart traefik。</li>
+</ul>
+<h3 id="5-6-pki-14-security">5.6 PKI（14.security）</h3>
+<ul>
+<li>cfssl 平台 @157（/opt/cfssl-platform），CA + 通配服务器证书（SAN=通配域名+节点 IP+VIP）+ etcd/patroni 客户端证书；幂等可重跑。</li>
+<li>产物三台分发：harbor/traefik 用 <code>tls.pem/tls-key.pem</code>；etcd 用 <code>/opt/opic/etcd/ssl/{etcd.pem,etcd-key.pem,ca.crt}</code>。</li>
+</ul>
+<h3 id="5-7-13-monitoring-pigsty">5.7 监控（13.monitoring，已去 Pigsty 空壳）</h3>
+<ul>
+<li>node_exporter ×3(9100)、postgres_exporter ×3(9187，DSN 连本机 5432)、Prometheus @infra(9095——9090 被 minio_console 占)、Grafana RPM @infra(3000)。</li>
+<li>抓取清单与实存 exporter 一致（haproxy/kafka exporter 未部署就不要写进 prometheus.yml）。</li>
+<li>验收：<code>/api/v1/targets</code> 全部 up（含 nats exporter、minio、patroni）。</li>
+</ul>
+<hr />
+<h2 id="6">6. 验收门禁</h2>
+<p><code>15.verify.yml</code>（roles/verify）23+ 项断言，任一红即失败：
+DRBD <code>disk:UpToDate + peer-disk:UpToDate</code>（该版本 drbdadm 不打印 "Connected"）· 三台 <code>mountpoint -q /opt/opic/harbor/data</code> · etcd endpoint health（证书路径 <strong>/opt/opic/etcd/ssl</strong>）· patronictl 1 Leader+≥2 streaming · PG 5433 · sentinel get-master-addr（名字 <code>mymaster</code>）· Kafka RF3 · MinIO ready · NATS 组网（<strong>varz 无 peers 列表，组网断言用 routez</strong> unique ip==2）+ exporter 出指标 · Harbor ×3 health · casdoor/zitadel(带 Host 头)/gitea/temporal(tctl)/code-server · <strong>域名冒烟</strong>（registry/auth/casdoor/git/vibe 经 :443）· Prometheus <code>activeTargets</code> 无 down · Grafana health。</p>
+<p>冒烟注意（从控制机测）：</p>
+<pre><code class="language-bash"># 若本机有 HTTP 代理：--resolve 会被代理吞掉（拿到代理的假 404），必须 -noproxy '*'
+curl -sk -noproxy '*' -o /dev/null -w '%{http_code}\n' https://registry.opic-dev.ccoe.vip/v2/
+</code></pre>
+<hr />
+<h2 id="7">7. 与外部系统共存（真实事故复盘）</h2>
+<p>lab 中 159 同时是某 K8s v1.36 集群（159/160/161，sealer 风格，eth0 10.0.0.x）的 master-01。<strong>两套 etcd 本身不冲突</strong>（端口 2479/2480 vs 2379/2380、目录/证书/网卡全隔离），真正撞的是：</p>
+<ol>
+<li><strong>systemd unit 同名</strong>：K8s 安装器覆盖 <code>/etc/systemd/system/etcd.service</code> → OPIC etcd 掉线 → Patroni 角色错乱 + PG 分歧。
+   <strong>治本（已做）</strong>：我们 unit 改名 <code>opic-etcd.service</code>；角色里 retire 旧 unit 前 slurp 校验 "OPIC DCS" 标记，<strong>绝不触碰外部 etcd.service</strong>。</li>
+<li><strong>ingress-nginx hostNetwork 80/443</strong>：调度到 159 时 CNI 的 DNAT 劫持宿主 :443 本地流量（traefik 明明 listen，curl 全 404 + K8s 假证书）。
+   <strong>处置</strong>：把 ingress 调度出 159（taint 或 nodeSelector——属 K8s 侧，需对方同意）；若域名 404+nginx 体再现，先 <code>nft list ruleset | grep 'dnat to'</code> 定性。</li>
+</ol>
+<p>新环境若同机混部其它平台，按「<strong>unit 名带前缀、端口段错开、约定 80/443 归属、DNAT 规则巡检</strong>」四条执行。</p>
+<hr />
+<h2 id="8-lab">8. 凭据与访问（lab 环境；生产必须全部更换）</h2>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>域名</td>
+<td><code>registry/auth/casdoor/git/vibe.opic-dev.ccoe.vip</code>（Prometheus <code>10.26.8.159:9095</code>、Grafana <code>10.26.8.159:3000</code>）</td>
+</tr>
+<tr>
+<td>Harbor</td>
+<td>管理员 admin（改过密）；项目 <code>opic</code></td>
+</tr>
+<tr>
+<td>Zitadel</td>
+<td>首次 <code>zitadel/Zitadel!1</code>，登录后改密</td>
+</tr>
+<tr>
+<td>Vibe/code-server</td>
+<td>口令 <code>OpicVibe2026Lab</code></td>
+</tr>
+<tr>
+<td>Grafana</td>
+<td>admin / <code>OpicGrafana2026Lab</code></td>
+</tr>
+<tr>
+<td>MinIO</td>
+<td><code>opicadmin</code> / <code>OpicMinio2026Lab</code></td>
+</tr>
+<tr>
+<td>Redis / Kafka / Harbor-DB / PG 管理口令</td>
+<td><code>opicRedis2026Lab</code> / <code>opicKafka2026Scram</code> / <code>OpicHarbor2026Db</code> / <code>OpicPg2026Lab</code></td>
+</tr>
+<tr>
+<td>Gitea</td>
+<td>自建账号（内置 SSH 2222）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9">9. 仓库与介质管理</h2>
+<ul>
+<li>分支策略：修订在 <code>feat/aliyun-lab</code>（可 PR 到 main）。GitHub 有 <strong>100MB 单文件硬限</strong>：<code>traefik_v3.1.5</code>、<code>grafana rpm</code> 已入 <code>.gitignore</code>，介质保留在部署机磁盘——新环境按 §2.5 自行放置。</li>
+<li>历史里若混入超限大文件：<code>git filter-branch --index-filter 'git rm --cached --ignore-unmatch &lt;path&gt;' &lt;base&gt;..&lt;branch&gt;</code> 剥离（先打备份 tag）。</li>
+<li>推送大包不稳时：<code>-c http.postBuffer=524288000</code>，并分两段推（先推中间 commit 再推 tip）。</li>
+</ul>
+<h2 id="10">10. 新人上手路线</h2>
+<ol>
+<li>读本手册 §1-§3，对着 <code>inventories/aliyun/</code> 和 <code>roles/*/tasks/main.yml</code> 走一遍代码。</li>
+<li>在 lab 跑 <code>15.verify.yml</code>，看每项断言对应哪层（roles/verify/tasks/main.yml 即「系统健康自检表」）。</li>
+<li>演练一次故障注入：停 157 keepalived → 看 VIP 漂到 158 → NFS 三台仍通 → Harbor 不受影响。</li>
+<li>按 §3 复制 inventory 到新环境，按 §4 顺序安装，卡壳先查 §5 对应小节（每条都是踩过的坑）与 §7。</li>
+</ol>
+</main>
+</div>
+</body>
+</html>
