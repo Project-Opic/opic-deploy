@@ -1,0 +1,15 @@
+[Unit]
+Description=OPIC postgres_exporter {{ postgres_exporter_version }}
+After=network-online.target patroni.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+# 本机 PG（patroni 直连 5432），haproxy 5433 只选 leader，exporter 按节点采集不设 leader 偏置
+Environment=DATA_SOURCE_NAME=postgresql://postgres:{{ pg_admin_password }}@127.0.0.1:5432/postgres?sslmode=disable
+ExecStart={{ monitoring_dir }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter --web.listen-address=0.0.0.0:{{ postgres_exporter_port }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

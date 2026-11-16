@@ -1,0 +1,12 @@
+---
+node_exporter_version: "1.8.2"
+postgres_exporter_version: "0.15.0"
+prometheus_version: "2.53.4"
+grafana_rpm_file: "grafana-11.6.0.x86_64.rpm"
+monitoring_dir: "/opt/opic/monitoring"
+prometheus_port: 9095          # 9090 已被 minio_console 占用
+grafana_port: 3000             # infra(159) 上运行；157 的 3000 是 gitea，互不冲突
+grafana_admin_password: "OpicGrafana2026Lab"
+postgres_exporter_port: 9187
+# pg-ha 角色 defaults 不跨角色共享，监控需连 PG——lab 内与 pg-ha/temporal 同值
+pg_admin_password: "OpicPg2026Lab"

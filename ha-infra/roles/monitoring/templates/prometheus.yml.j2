@@ -1,0 +1,52 @@
+# OPIC Prometheus（infra @159）— 静态 targets（lab 规模，file_sd 属过度设计）
+# 目标均为实测存在：node_exporter(9100 本角色部署) / postgres_exporter(9187 本角色部署)
+# patroni REST 8008 /metrics（匿名 200 实测）/ minio /minio/v2/metrics/cluster（需 root basic auth）
+# nats monitor 8222 自带 /metrics / nats 非 host——注意 NATS 2.10 monitor 直接出 metrics
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: node
+    static_configs:
+      - targets:
+{% for h in groups['harbor'] %}
+          - "{{ hostvars[h].ansible_host }}:{{ port_map.node_exporter }}"
+{% endfor %}
+
+  - job_name: postgres
+    static_configs:
+      - targets:
+{% for h in groups['pg_cluster'] %}
+          - "{{ hostvars[h].ansible_host }}:{{ postgres_exporter_port }}"
+{% endfor %}
+
+  - job_name: patroni
+    static_configs:
+      - targets:
+{% for h in groups['pg_cluster'] %}
+          - "{{ hostvars[h].ansible_host }}:{{ port_map.patroni_rest }}"
+{% endfor %}
+
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    # minio metrics 不支持 basic auth（400 InvalidRequest）→ minio.env 里
+    # MINIO_PROMETHEUS_AUTH_TYPE=public 匿名抓取（lab 内网）
+    static_configs:
+      - targets:
+{% for h in groups['minio_cluster'] %}
+          - "{{ hostvars[h].ansible_host }}:{{ port_map.minio_api }}"
+{% endfor %}
+
+  - job_name: nats
+    metrics_path: /metrics
+    # nats-server 无内置 /metrics → prometheus-nats-exporter(host 网络 :7777)
+    static_configs:
+      - targets:
+{% for h in groups['pg_cluster'] %}
+          - "{{ hostvars[h].ansible_host }}:{{ port_map.nats_exporter }}"
+{% endfor %}
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:{{ prometheus_port }}"]

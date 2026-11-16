@@ -14,6 +14,10 @@
     src: nats-server.conf.j2
     dest: "{{ nats_dir }}/nats-server.conf"
     mode: '0640'
+  notify: recreate nats
+
+- name: flush handlers (conf change → recreate before gates)
+  ansible.builtin.meta: flush_handlers
 
 - name: chown nats data dir for container uid
   ansible.builtin.file:
@@ -27,6 +31,7 @@
     src: docker-compose-nats.yml.j2
     dest: "{{ nats_dir }}/docker-compose.yml"
     mode: '0644'
+  notify: recreate nats
 
 - name: docker compose up nats
   ansible.builtin.command: docker compose -f {{ nats_dir }}/docker-compose.yml up -d

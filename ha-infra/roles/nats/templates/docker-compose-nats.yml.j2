@@ -10,3 +10,13 @@ services:
       - {{ nats_data }}:/data
     # 注意：nats:2.10 官方镜像内无 wget/curl，容器级 healthcheck 无法探测 monitor 端口
     # （会永远 unhealthy）。健康把关放在 tasks 的 healthz uri 断言上。
+  nats-exporter:
+    # nats-server 本身无 Prometheus 端点 → 官方 exporter 消费 monitor JSON
+    image: natsio/prometheus-nats-exporter:0.15.0
+    container_name: opic-nats-exporter
+    restart: no
+    network_mode: host
+    # 0.15.0 flag 实测（usage 输出）：-subz（不是 -subsz）；-jsz 是 string 参数
+    command: -varz -connz -routez -subz http://127.0.0.1:{{ nats_monitor_port }}
+    depends_on:
+      - nats

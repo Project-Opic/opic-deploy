@@ -1,15 +1,190 @@
 ---
-# Pigsty infra role（141）—— Grafana/VictoriaLogs/Alertmanager/nginx portal
-- name: delegate to Pigsty infra
-  ansible.builtin.debug:
-    msg: "Pigsty infra role — run inside admin container"
+# 原生监控栈（弃 Pigsty 委托）：
+#   ×3  node_exporter(9100)
+#   ×3  postgres_exporter(9187) @pg_cluster
+#   ×1  Prometheus(9095) + Grafana(3000) @infra(159)
+# 端口依据：9090 已是 minio_console，故 prometheus 用 9095；159 的 3000 无人占用（gitea 在 157）
 
-- name: ensure pg containers have exporters
-  ansible.builtin.debug:
-    msg: "pg_monitor role — run inside admin container for pg_cluster"
+# ── 通用目录 ──
+- name: create monitoring dir
+  ansible.builtin.file:
+    path: "{{ monitoring_dir }}"
+    state: directory
+    mode: '0755'
 
-- name: mask apt-daily timers (pg containers)
-  ansible.builtin.shell: >
-    docker exec pigsty-pg-{{ ansible_hostname }} bash -c
-    'systemctl mask apt-daily.timer apt-daily-upgrade.timer certbot.timer'
-  changed_when: true
+# ── node_exporter ×3 ──
+- name: copy node_exporter tarball
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ monitoring_dir }}/"
+    mode: '0644'
+
+- name: extract node_exporter
+  ansible.builtin.unarchive:
+    src: "{{ monitoring_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ monitoring_dir }}"
+    remote_src: true
+    creates: "{{ monitoring_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+
+- name: render opic-node-exporter.service
+  ansible.builtin.template:
+    src: opic-node-exporter.service.j2
+    dest: /etc/systemd/system/opic-node-exporter.service
+    mode: '0644'
+  notify: daemon reload
+
+- name: ensure node_exporter enabled and started
+  ansible.builtin.systemd:
+    name: opic-node-exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: flush handlers before gates
+  ansible.builtin.meta: flush_handlers
+
+- name: gate node_exporter metrics
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ port_map.node_exporter }}/metrics"
+    status_code: [200]
+  register: ne_health
+  retries: 5
+  delay: 3
+  until: ne_health.status == 200
+
+# ── postgres_exporter ×3（pg_cluster）──
+- name: pg | copy postgres_exporter tarball
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ monitoring_dir }}/"
+    mode: '0644'
+  when: "'pg_cluster' in group_names"
+
+- name: pg | extract postgres_exporter
+  ansible.builtin.unarchive:
+    src: "{{ monitoring_dir }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ monitoring_dir }}"
+    remote_src: true
+    creates: "{{ monitoring_dir }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+  when: "'pg_cluster' in group_names"
+
+- name: pg | render opic-postgres-exporter.service
+  ansible.builtin.template:
+    src: opic-postgres-exporter.service.j2
+    dest: /etc/systemd/system/opic-postgres-exporter.service
+    mode: '0644'
+  when: "'pg_cluster' in group_names"
+  notify: daemon reload
+
+- name: pg | ensure postgres_exporter enabled and started
+  ansible.builtin.systemd:
+    name: opic-postgres-exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: "'pg_cluster' in group_names"
+
+- name: pg | gate postgres_exporter metrics
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ postgres_exporter_port }}/metrics"
+    status_code: [200]
+  register: pex_health
+  retries: 10
+  delay: 3
+  until: pex_health.status == 200
+  when: "'pg_cluster' in group_names"
+
+# ── Prometheus @infra(159) ──
+- name: infra | copy prometheus tarball
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: "{{ monitoring_dir }}/"
+    mode: '0644'
+  when: "'infra' in group_names"
+
+- name: infra | extract prometheus
+  ansible.builtin.unarchive:
+    src: "{{ monitoring_dir }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: "{{ monitoring_dir }}"
+    remote_src: true
+    creates: "{{ monitoring_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/prometheus"
+  when: "'infra' in group_names"
+
+- name: infra | render prometheus.yml
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_dir }}/prometheus.yml"
+    mode: '0644'
+  when: "'infra' in group_names"
+  notify: restart prometheus
+
+- name: infra | render opic-prometheus.service
+  ansible.builtin.template:
+    src: opic-prometheus.service.j2
+    dest: /etc/systemd/system/opic-prometheus.service
+    mode: '0644'
+  when: "'infra' in group_names"
+  notify: daemon reload
+
+- name: infra | ensure prometheus enabled and started
+  ansible.builtin.systemd:
+    name: opic-prometheus
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: "'infra' in group_names"
+
+- name: infra | wait prometheus port
+  ansible.builtin.wait_for:
+    port: "{{ prometheus_port }}"
+    timeout: 60
+  when: "'infra' in group_names"
+
+# ── Grafana @infra(159) ──
+- name: infra | copy grafana rpm
+  ansible.builtin.copy:
+    src: "{{ offline_dir }}/{{ grafana_rpm_file }}"
+    dest: "/tmp/{{ grafana_rpm_file }}"
+    mode: '0644'
+  when: "'infra' in group_names"
+
+- name: infra | install grafana
+  ansible.builtin.dnf:
+    name: "/tmp/{{ grafana_rpm_file }}"
+    state: present
+    disable_gpg_check: true
+  when: "'infra' in group_names"
+
+- name: infra | ensure grafana-server enabled and started
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    state: started
+  when: "'infra' in group_names"
+
+- name: infra | wait grafana port
+  ansible.builtin.wait_for:
+    port: "{{ grafana_port }}"
+    timeout: 90
+  when: "'infra' in group_names"
+
+- name: infra | set grafana admin password (idempotent)
+  ansible.builtin.shell: |
+    set -e
+    if command -v grafana >/dev/null 2>&1; then
+      grafana cli admin reset-admin-password {{ grafana_admin_password }}
+    else
+      grafana-cli admin reset-admin-password {{ grafana_admin_password }}
+    fi
+  when: "'infra' in group_names"
+  changed_when: false
+
+- name: infra | gate grafana health
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ grafana_port }}/api/health"
+    status_code: [200]
+  register: gf_health
+  retries: 10
+  delay: 3
+  until: gf_health.status == 200
+  when: "'infra' in group_names"

@@ -1,0 +1,13 @@
+[Unit]
+Description=OPIC node_exporter {{ node_exporter_version }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart={{ monitoring_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter --web.listen-address=0.0.0.0:{{ port_map.node_exporter }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

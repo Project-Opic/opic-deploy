@@ -1,0 +1,17 @@
+[Unit]
+Description=OPIC Prometheus {{ prometheus_version }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart={{ monitoring_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/prometheus \
+  --config.file={{ monitoring_dir }}/prometheus.yml \
+  --storage.tsdb.path={{ monitoring_dir }}/data \
+  --storage.tsdb.retention.time=15d \
+  --web.listen-address=0.0.0.0:{{ prometheus_port }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

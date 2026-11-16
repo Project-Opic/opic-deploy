@@ -148,6 +148,27 @@
   delegate_to: "{{ groups['vibe'][0] }}"
   run_once: true
 
+# ── 监控面 ──
+- name: gate prometheus all targets up
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9095/api/v1/targets"
+    status_code: [200]
+  delegate_to: "{{ groups['infra'][0] }}"
+  run_once: true
+  register: prom_targets
+  changed_when: false
+  until: >-
+    (prom_targets.json.data.activeTargets | rejectattr('health','equalto','up') | list | length) == 0
+  retries: 10
+  delay: 10
+
+- name: gate grafana health
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[groups['infra'][0]].ansible_host }}:3000/api/health"
+    status_code: [200]
+  delegate_to: "{{ groups['infra'][0] }}"
+  run_once: true
+
 # ── Traefik 域名冒烟（经 harbor[0]=157 的 :443）──
 - name: gate registry route via 443
   ansible.builtin.uri:
@@ -195,6 +216,6 @@
 
 - name: GATE SUMMARY — all checks green
   ansible.builtin.debug:
-    msg: "稳态门禁全绿：DRBD/NFS · etcd · Patroni · Redis Sentinel · Kafka RF3 · MinIO EC · NATS3 · Harbor×3 · Casdoor/Zitadel/Gitea/Temporal · Vibe · Traefik 域名路由"
+    msg: "稳态门禁全绿：DRBD/NFS · etcd · Patroni · Redis Sentinel · Kafka RF3 · MinIO EC · NATS3(+exporter) · Harbor×3 · Casdoor/Zitadel/Gitea/Temporal · Vibe · Prometheus targets up · Grafana · Traefik 域名路由"
   delegate_to: "{{ groups['harbor'][0] }}"
   run_once: true

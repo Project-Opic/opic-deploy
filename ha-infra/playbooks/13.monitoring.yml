@@ -1,9 +1,8 @@
 ---
-# 监控面: Pigsty infra @141 + exporters ×3 + VictoriaLogs/Traces + Alertmanager
-- hosts: infra
+# 监控面（原生，弃 Pigsty 委托）：
+#   node_exporter ×3 @harbor(三台) · postgres_exporter ×3 @pg_cluster
+#   Prometheus(9095) + Grafana(3000) @infra(159)
+# 角色内按 group_names 条件分派，单 play 覆盖三台
+- hosts: harbor
   roles:
     - monitoring
-- hosts: pg_cluster
-  tasks:
-    - name: ensure exporters
-      ansible.builtin.debug: { msg: "exporters via Pigsty pg_monitor role" }

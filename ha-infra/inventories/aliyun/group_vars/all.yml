@@ -47,6 +47,7 @@ port_map:
   nats_client: 4222
   nats_cluster: 6222
   nats_monitor: 8222
+  nats_exporter: 7777
   vibe_https: 8443
   patroni_rest: 8008
   node_exporter: 9100

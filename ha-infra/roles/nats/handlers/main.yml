@@ -1,0 +1,5 @@
+---
+- name: recreate nats
+  # 挂载的 conf 变更 compose 不会自动重建，需 force-recreate
+  ansible.builtin.command: docker compose -f {{ nats_dir }}/docker-compose.yml up -d --force-recreate
+  changed_when: true
