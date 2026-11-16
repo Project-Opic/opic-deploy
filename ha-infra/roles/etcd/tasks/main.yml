@@ -116,10 +116,33 @@
     remote_src: true
 
 # ── systemd ──
-- name: render etcd.service
+# 单元名用 opic-etcd.service（不用裸 etcd.service）：
+# 与 159 上的 K8s(v1.36) 安装器写的 /etc/systemd/system/etcd.service 撞名会互相覆盖
+# （实测 2026-11-16：kube etcd unit 顶掉 OPIC unit → ali159 DCS 掉线 → Patroni 角色错乱）
+- name: inspect legacy etcd.service (is it ours?)
+  ansible.builtin.slurp:
+    src: /etc/systemd/system/etcd.service
+  register: legacy_etcd_unit
+  failed_when: false
+
+- name: retire legacy etcd.service unit (rename to opic-etcd.service)
+  when: "'OPIC DCS' in (legacy_etcd_unit.content | default('') | b64decode)"
+  block:
+    - name: stop and disable legacy etcd.service
+      ansible.builtin.systemd:
+        name: etcd
+        enabled: false
+        state: stopped
+      failed_when: false
+    - name: remove legacy unit file (ours only; never touch a foreign etcd.service)
+      ansible.builtin.file:
+        path: /etc/systemd/system/etcd.service
+        state: absent
+
+- name: render opic-etcd.service
   ansible.builtin.template:
-    src: etcd.service.j2
-    dest: /etc/systemd/system/etcd.service
+    src: opic-etcd.service.j2
+    dest: /etc/systemd/system/opic-etcd.service
     mode: '0644'
   notify:
     - daemon reload
@@ -127,7 +150,7 @@
 
 - name: ensure etcd enabled and started
   ansible.builtin.systemd:
-    name: etcd
+    name: opic-etcd
     enabled: true
     state: started
     daemon_reload: true

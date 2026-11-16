@@ -1,6 +1,6 @@
 [Unit]
 Description=Patroni High-Availability PostgreSQL {{ pg_version }} (OPIC)
-After=network-online.target etcd.service
+After=network-online.target opic-etcd.service
 Wants=network-online.target
 
 [Service]

@@ -2,5 +2,6 @@
 # P3a: etcd ×3（systemd 二进制 + 平台 cfssl TLS，端口 2479/2480）
 # 原生部署（Pigsty 在线不可达 → Patroni 路线，etcd 即 Patroni DCS）
 - hosts: etcd_cluster
+  serial: 1   # 滚动逐台：quorum 3 台任停 1 台不受损；unit 改名/重启均安全滚动
   roles:
     - etcd
