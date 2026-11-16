@@ -24,10 +24,8 @@ http:
 {% for h in groups['apps'] %}
           - url: "http://{{ hostvars[h].ansible_host }}:{{ port_map.casdoor_http }}"
 {% endfor %}
-        healthCheck:
-          path: /api/healthz
-          interval: 10s
-          timeout: 5s
+        # 不做 http healthCheck：traefik 探 /api/healthz 时 casdoor 对其请求回 500
+        # （beego 对无 Origin/Referer 的探测走错误分支），会误摘；应用层断言在 verify 门禁
     zitadel-svc:
       loadBalancer:
         passHostHeader: true
@@ -43,6 +41,8 @@ http:
           # gitea 单实例（apps[0]），数据在 NFS
           - url: "http://{{ hostvars[groups['apps'][0]].ansible_host }}:{{ port_map.gitea_http }}"
         healthCheck:
-          path: /api/health
+          # gitea 1.22 该实例 /api/health 返回 404（需登录/未启用），traefik 只认 2xx
+          # 会误摘导致 503；改探首页 `/`
+          path: /
           interval: 10s
           timeout: 5s

@@ -12,6 +12,10 @@ services:
       POSTGRES_SEEDS: "{{ temporal_db_host }}"
       DBNAME: temporal
       VISIBILITY_NAME: temporal_visibility
+      # host 网络下默认绑首个网卡（VPC eth0）→ 全网卡监听 + 广播 nebula IP
+      # （config_template: broadcastAddress ← TEMPORAL_BROADCAST_ADDRESS）
+      BIND_ON_IP: "0.0.0.0"
+      TEMPORAL_BROADCAST_ADDRESS: "{{ ansible_host }}"
       ALLOW_LONG_RUNNING_ACTIVITY_TTL: "true"
     healthcheck:
       test: ["CMD", "tctl", "--address", "127.0.0.1:{{ temporal_grpc_port }}", "workflow", "list"]

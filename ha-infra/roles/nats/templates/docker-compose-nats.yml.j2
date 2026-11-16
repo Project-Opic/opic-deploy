@@ -8,8 +8,5 @@ services:
     volumes:
       - {{ nats_dir }}/nats-server.conf:/etc/nats/nats-server.conf:ro
       - {{ nats_data }}:/data
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:{{ nats_monitor_port }}/healthz"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+    # 注意：nats:2.10 官方镜像内无 wget/curl，容器级 healthcheck 无法探测 monitor 端口
+    # （会永远 unhealthy）。健康把关放在 tasks 的 healthz uri 断言上。

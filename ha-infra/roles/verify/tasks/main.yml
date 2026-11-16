@@ -9,7 +9,9 @@
   run_once: true
   register: drbd_status
   changed_when: false
-  until: "'Connected' in drbd_status.stdout and 'UpToDate' in drbd_status.stdout"
+  # 该版本 drbdadm status 不打印 "Connected"；断连时 peer-disk 变 Unknown，
+  # 因此以本端 disk:UpToDate + 对端 peer-disk:UpToDate 同时在场判定连接且同步完成
+  until: "'disk:UpToDate' in drbd_status.stdout and 'peer-disk:UpToDate' in drbd_status.stdout"
   retries: 5
   delay: 5
 
@@ -21,7 +23,7 @@
 - name: gate etcd endpoint health (per node)
   ansible.builtin.shell: >
     ETCDCTL_API=3 etcdctl --endpoints=https://{{ ansible_host }}:{{ port_map.etcd_client }}
-    --cacert=/etc/etcd/ssl/ca.crt --cert=/etc/etcd/ssl/etcd.pem --key=/etc/etcd/ssl/etcd-key.pem
+    --cacert=/opt/opic/etcd/ssl/ca.crt --cert=/opt/opic/etcd/ssl/etcd.pem --key=/opt/opic/etcd/ssl/etcd-key.pem
     endpoint health
   register: etcd_health
   changed_when: false
@@ -83,15 +85,17 @@
   until: minio_ready.status == 200
 
 # ── NATS ──
-- name: gate nats cluster size 3
+# varz 的 cluster 段只有自身 urls 无 peers；组网用 routez 判定：
+# 三节点全网状 → 每节点应有 2 个不同对端 IP 的 route
+- name: gate nats mesh (routez 2 peers on each node)
   ansible.builtin.uri:
-    url: "http://{{ hostvars[groups['pg_cluster'][0]].ansible_host }}:{{ port_map.nats_monitor }}/varz"
-  delegate_to: "{{ groups['pg_cluster'][0] }}"
-  run_once: true
-  register: nats_varz
+    url: "http://127.0.0.1:{{ port_map.nats_monitor }}/routez"
+  register: nats_routez
   changed_when: false
-  until: "(nats_varz.json.cluster.servers | default([]) | length) == 2"   # 对端 2 个（不含自身）
-  retries: 5
+  until: >-
+    (nats_routez.json.routes
+      | map(attribute='ip') | select('defined') | unique | list | length) == 2
+  retries: 10
   delay: 5
 
 # ── Harbor ──
