@@ -1,0 +1,21 @@
+Database:
+  postgres:
+    Host: {{ zitadel_db_host }}
+    Port: {{ zitadel_db_port }}
+    Database: {{ zitadel_db_name }}
+    User:
+      Username: "{{ zitadel_db_user }}"
+      Password: "{{ zitadel_db_pass }}"
+      SSL:
+        Mode: disable
+    Admin:
+      Username: "{{ zitadel_db_user }}"
+      Password: "{{ zitadel_db_pass }}"
+      SSL:
+        Mode: disable
+      # 库已预建 → 告诉 init 直连既有库（否则尝试连同名 username 的库去 CREATE DATABASE）
+      ExistingDatabase: {{ zitadel_db_name }}
+ExternalDomain: {{ zitadel_external_domain }}
+ExternalPort: 443
+ExternalSecure: true
+Port: {{ zitadel_port }}

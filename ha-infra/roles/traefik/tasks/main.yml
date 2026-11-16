@@ -42,6 +42,12 @@
     dest: /etc/traefik/dynamic/vibe.yml
     mode: '0644'
 
+- name: render dynamic apps routes (casdoor/auth/git)
+  ansible.builtin.template:
+    src: apps.yml.j2
+    dest: /etc/traefik/dynamic/apps.yml
+    mode: '0644'
+
 - name: copy tls cert and key from cert_output dir
   ansible.builtin.copy:
     src: "{{ cert_output_dir }}/{{ item }}"

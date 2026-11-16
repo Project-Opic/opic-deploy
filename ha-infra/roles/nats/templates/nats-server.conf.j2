@@ -1,0 +1,17 @@
+# NATS JetStream 3-node cluster (host network)
+server_name: nats-{{ ansible_hostname }}
+port: {{ nats_client_port }}
+cluster {
+  name: opic-nats
+  port: {{ nats_cluster_port }}
+  routes = [
+{% for h in groups['nats_cluster'] | default(groups['pg_cluster']) %}
+    nats-route://{{ hostvars[h].ansible_host }}:{{ nats_cluster_port }}
+{% endfor %}
+  ]
+}
+jetstream {
+  store_dir: /data
+  max_file_store: 10GB
+}
+http: {{ nats_monitor_port }}

@@ -1,0 +1,33 @@
+services:
+  gitea:
+    image: {{ gitea_image }}
+    container_name: opic-gitea
+    restart: no
+    network_mode: host
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      # host 网络下容器内 sshd 会与宿主 sshd 抢 22 → 禁用，改用 gitea 内置 SSH（2222）
+      DISABLE_SSH: "true"
+      SSH_PORT: "2222"
+      GITEA__database__DB_TYPE: postgres
+      GITEA__database__HOST: "{{ gitea_db_host }}:{{ gitea_db_port }}"
+      GITEA__database__NAME: "{{ gitea_db_name }}"
+      GITEA__database__USER: "{{ gitea_db_user }}"
+      GITEA__database__PASSWD: "{{ gitea_db_pass }}"
+      GITEA__server__ROOT_URL: "{{ gitea_root_url }}"
+      GITEA__server__HTTP_PORT: "{{ gitea_http_port }}"
+      GITEA__server__DOMAIN: "git.{{ opic_base_domain }}"
+      GITEA__server__SSH_DOMAIN: "{{ ansible_host }}"
+      GITEA__server__START_SSH_SERVER: "true"
+      GITEA__server__SSH_PORT: "{{ gitea_ssh_port }}"
+      GITEA__server__SSH_LISTEN_PORT: "{{ gitea_ssh_port }}"
+    volumes:
+      - {{ gitea_data }}/data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:{{ gitea_http_port }}/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

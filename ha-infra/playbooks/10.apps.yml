@@ -1,9 +1,12 @@
 ---
-# 阶段3: Casdoor×2/ZITADEL×2/Gitea×2/Temporal×2/NATS×3
+# 阶段3: Casdoor×2/ZITADEL×2/Gitea×1(NFS)/Temporal×2 @apps + NATS×3 @pg_cluster
 - hosts: apps
   roles:
     - casdoor
     - zitadel
     - gitea
     - temporal
+
+- hosts: pg_cluster
+  roles:
     - nats

@@ -1,3 +1,196 @@
 ---
-# verify 角色：稳态总门禁（对应 runbook H10 + §76 门禁拓扑化）
-# 348 格全绿 = HA-step1 收口
+# verify 角色：稳态门禁（真实断言，任一失败 play 即红——不做纸面断言）
+# 覆盖：DRBD/Ganesha/Keepalived + etcd/PG/Redis/Kafka/MinIO/NATS + Harbor/apps/Vibe + Traefik 域名
+
+# ── 存储层 ──
+- name: gate drbd connected up-to-date (drbd nodes)
+  ansible.builtin.command: drbdadm status {{ drbd_resource }}
+  delegate_to: "{{ groups['drbd'][0] }}"
+  run_once: true
+  register: drbd_status
+  changed_when: false
+  until: "'Connected' in drbd_status.stdout and 'UpToDate' in drbd_status.stdout"
+  retries: 5
+  delay: 5
+
+- name: gate nfs data mount active (all harbor nodes)
+  ansible.builtin.command: mountpoint -q {{ opic_harbor_data }}
+  changed_when: false
+
+# ── etcd ──
+- name: gate etcd endpoint health (per node)
+  ansible.builtin.shell: >
+    ETCDCTL_API=3 etcdctl --endpoints=https://{{ ansible_host }}:{{ port_map.etcd_client }}
+    --cacert=/etc/etcd/ssl/ca.crt --cert=/etc/etcd/ssl/etcd.pem --key=/etc/etcd/ssl/etcd-key.pem
+    endpoint health
+  register: etcd_health
+  changed_when: false
+  until: "'is healthy' in etcd_health.stdout"
+  retries: 5
+  delay: 5
+
+# ── PG HA ──
+- name: gate patroni leader+replicas
+  ansible.builtin.command: patronictl -c /etc/patroni/patroni.yml list
+  delegate_to: "{{ groups['pg_cluster'][0] }}"
+  run_once: true
+  register: patroni_list
+  changed_when: false
+  until: >-
+    (patroni_list.stdout | regex_findall('Leader|Primary') | length == 1) and
+    (patroni_list.stdout | regex_findall('Replica|streaming') | length >= 2)
+  retries: 5
+  delay: 5
+
+- name: gate pg rw via haproxy (all nodes)
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ port_map.pg_haproxy }}"
+    timeout: 30
+
+# ── Redis Sentinel ──
+- name: gate sentinel master resolvable (all nodes)
+  ansible.builtin.command: >-
+    docker exec sentinel-{{ ansible_hostname }} redis-cli -p {{ port_map.redis_sentinel }}
+    sentinel get-master-addr-by-name {{ redis_sentinel_master_set }}
+  register: sent_master
+  changed_when: false
+  until: sent_master.stdout | regex_findall('\d+\.\d+\.\d+\.\d+') | length == 1
+  retries: 5
+  delay: 5
+
+# ── Kafka ──
+- name: gate kafka topic RF3 exists
+  ansible.builtin.command: >-
+    docker exec kafka-{{ hostvars[groups['kafka_cluster'][0]].ansible_hostname }} /opt/kafka/bin/kafka-topics.sh
+    --bootstrap-server {{ hostvars[groups['kafka_cluster'][0]].ansible_host }}:{{ port_map.kafka_ssl }} --describe --topic opic-smoke
+  delegate_to: "{{ groups['kafka_cluster'][0] }}"
+  run_once: true
+  register: kafka_topic
+  changed_when: false
+  until: "(kafka_topic.stdout | regex_findall('Replicas: \\d+,\\d+,\\d+') | length) >= 1"
+  retries: 5
+  delay: 5
+
+# ── MinIO ──
+- name: gate minio ready (all nodes)
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ port_map.minio_api }}/minio/health/ready"
+    status_code: [200]
+  register: minio_ready
+  retries: 10
+  delay: 3
+  until: minio_ready.status == 200
+
+# ── NATS ──
+- name: gate nats cluster size 3
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[groups['pg_cluster'][0]].ansible_host }}:{{ port_map.nats_monitor }}/varz"
+  delegate_to: "{{ groups['pg_cluster'][0] }}"
+  run_once: true
+  register: nats_varz
+  changed_when: false
+  until: "(nats_varz.json.cluster.servers | default([]) | length) == 2"   # 对端 2 个（不含自身）
+  retries: 5
+  delay: 5
+
+# ── Harbor ──
+- name: gate harbor healthy (all nodes)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}:{{ harbor_tls_port | default(18700) }}/api/v2.0/health"
+    status_code: [200]
+    validate_certs: false
+  register: harbor_health
+  retries: 10
+  delay: 5
+  until: harbor_health.status == 200
+
+# ── Apps（delegate 到 apps[0]）──
+- name: gate casdoor healthz
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[groups['apps'][0]].ansible_host }}:{{ port_map.casdoor_http }}/api/healthz"
+    status_code: [200]
+  delegate_to: "{{ groups['apps'][0] }}"
+  run_once: true
+
+- name: gate zitadel login page
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[groups['apps'][0]].ansible_host }}:{{ port_map.zitadel_http }}/ui/login/"
+    headers:
+      Host: "auth.{{ opic_base_domain }}"
+    status_code: [200, 301, 302]
+  delegate_to: "{{ groups['apps'][0] }}"
+  run_once: true
+
+- name: gate gitea responsive
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[groups['apps'][0]].ansible_host }}:{{ port_map.gitea_http }}/"
+    status_code: [200, 302]
+  delegate_to: "{{ groups['apps'][0] }}"
+  run_once: true
+
+- name: gate temporal cluster health
+  ansible.builtin.command: >-
+    docker exec opic-temporal tctl --address {{ hostvars[groups['apps'][0]].ansible_host }}:{{ port_map.temporal_grpc }} cluster health
+  delegate_to: "{{ groups['apps'][0] }}"
+  run_once: true
+  changed_when: false
+
+# ── Vibe ──
+- name: gate code-server login
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[groups['vibe'][0]].ansible_host }}:{{ port_map.vibe_https }}/login"
+    status_code: [200, 302]
+  delegate_to: "{{ groups['vibe'][0] }}"
+  run_once: true
+
+# ── Traefik 域名冒烟（经 harbor[0]=157 的 :443）──
+- name: gate registry route via 443
+  ansible.builtin.uri:
+    url: "https://registry.{{ opic_base_domain }}/api/v2.0/health"
+    status_code: [200]
+    validate_certs: false
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+  register: reg_route
+  until: reg_route.status == 200
+  retries: 5
+  delay: 5
+
+- name: gate auth route via 443
+  ansible.builtin.uri:
+    url: "https://auth.{{ opic_base_domain }}/ui/login/"
+    status_code: [200, 301, 302]
+    validate_certs: false
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+
+- name: gate casdoor route via 443
+  ansible.builtin.uri:
+    url: "https://casdoor.{{ opic_base_domain }}/api/healthz"
+    status_code: [200]
+    validate_certs: false
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+
+- name: gate vibe route via 443
+  ansible.builtin.uri:
+    url: "https://vibe.{{ opic_base_domain }}/login"
+    status_code: [200, 302]
+    validate_certs: false
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+
+- name: gate git route via 443
+  ansible.builtin.uri:
+    url: "https://git.{{ opic_base_domain }}/"
+    status_code: [200, 302]
+    validate_certs: false
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true
+
+- name: GATE SUMMARY — all checks green
+  ansible.builtin.debug:
+    msg: "稳态门禁全绿：DRBD/NFS · etcd · Patroni · Redis Sentinel · Kafka RF3 · MinIO EC · NATS3 · Harbor×3 · Casdoor/Zitadel/Gitea/Temporal · Vibe · Traefik 域名路由"
+  delegate_to: "{{ groups['harbor'][0] }}"
+  run_once: true

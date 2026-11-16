@@ -1,17 +1,38 @@
 ---
-- name: render gitea docker-compose.yml ×2 (external PG + shared NFS /data)
-  ansible.builtin.template:
-    src: docker-compose-gitea.yml.j2
-    dest: "{{ opic_ha_stack }}/gitea/docker-compose.yml"
-    mode: '0644'
-  notify: docker compose up gitea
-
-- name: ensure /data mount exists
+# Gitea：数据放 NFS 共享目录，进程单实例跑 apps[0]（避免 NFS 并发锁竞争）
+- name: create gitea dirs local
   ansible.builtin.file:
-    path: /data/gitea
+    path: "{{ gitea_dir }}"
     state: directory
     mode: '0755'
 
-- name: docker compose up gitea
-  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/gitea/docker-compose.yml up -d
+- name: create gitea NFS data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ gitea_data }}"
+    - "{{ gitea_data }}/data"
+  when: inventory_hostname == groups['apps'][0]
+
+- name: render gitea docker-compose.yml (external PG + shared NFS /data)
+  ansible.builtin.template:
+    src: docker-compose-gitea.yml.j2
+    dest: "{{ gitea_dir }}/docker-compose.yml"
+    mode: '0600'
+
+- name: docker compose up gitea on primary apps node
+  ansible.builtin.command: docker compose -f {{ gitea_dir }}/docker-compose.yml up -d
   changed_when: true
+  when: inventory_hostname == groups['apps'][0]
+
+- name: wait gitea on primary apps node
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/"
+    status_code: [200]
+  when: inventory_hostname == groups['apps'][0]
+  register: gitea_health
+  retries: 20
+  delay: 5
+  until: gitea_health.status == 200

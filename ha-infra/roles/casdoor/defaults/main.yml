@@ -1,0 +1,10 @@
+---
+casdoor_image: "casbin/casdoor:v2.35.0"
+casdoor_port: "{{ port_map.casdoor_http }}"
+casdoor_dir: "{{ opic_ha_stack }}/casdoor"
+casdoor_db_host: "{{ ansible_host }}"   # 本机 haproxy rw
+casdoor_db_port: 5433
+casdoor_db_name: casdoor_db
+casdoor_db_user: opic-apps
+casdoor_db_pass: "OpicApps2026Lab"
+casdoor_origin: "https://casdoor.{{ opic_base_domain }}"

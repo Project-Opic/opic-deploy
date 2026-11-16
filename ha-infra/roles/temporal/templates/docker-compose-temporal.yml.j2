@@ -1,0 +1,20 @@
+services:
+  temporal:
+    image: {{ temporal_image }}
+    container_name: opic-temporal
+    restart: no
+    network_mode: host
+    environment:
+      DB: postgres12
+      DB_PORT: "{{ temporal_db_port }}"
+      POSTGRES_USER: "{{ temporal_db_user }}"
+      POSTGRES_PWD: "{{ temporal_db_pass }}"
+      POSTGRES_SEEDS: "{{ temporal_db_host }}"
+      DBNAME: temporal
+      VISIBILITY_NAME: temporal_visibility
+      ALLOW_LONG_RUNNING_ACTIVITY_TTL: "true"
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "127.0.0.1:{{ temporal_grpc_port }}", "workflow", "list"]
+      interval: 20s
+      timeout: 10s
+      retries: 5

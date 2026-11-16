@@ -1,11 +1,31 @@
 ---
-- name: render temporal docker-compose.yml ×2 (external PG temporal + temporal_visibility)
+# Temporal auto-setup ×2（apps 组，external PG temporal + temporal_visibility）
+# auto-setup 对已存在 schema 幂等（跳过 setup 直接起服务）
+- name: create temporal dir
+  ansible.builtin.file:
+    path: "{{ temporal_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: render temporal docker-compose.yml
   ansible.builtin.template:
     src: docker-compose-temporal.yml.j2
-    dest: "{{ opic_ha_stack }}/temporal/docker-compose.yml"
-    mode: '0644'
-  notify: docker compose up temporal
+    dest: "{{ temporal_dir }}/docker-compose.yml"
+    mode: '0600'
 
 - name: docker compose up temporal
-  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/temporal/docker-compose.yml up -d
+  ansible.builtin.command: docker compose -f {{ temporal_dir }}/docker-compose.yml up -d
   changed_when: true
+
+- name: wait temporal grpc port
+  ansible.builtin.wait_for:
+    port: "{{ temporal_grpc_port }}"
+    timeout: 180
+
+- name: temporal cluster health (tctl)
+  ansible.builtin.command: docker exec opic-temporal tctl --address 127.0.0.1:{{ temporal_grpc_port }} cluster health
+  register: temporal_health
+  retries: 10
+  delay: 5
+  until: temporal_health.rc == 0
+  changed_when: false

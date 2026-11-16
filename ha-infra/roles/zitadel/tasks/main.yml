@@ -1,19 +1,52 @@
 ---
-- name: render zitadel docker-compose.yml ×2 (external PG)
+# ZITADEL v2.3.3 ×2（apps 组，共享 PG）：primary 先起并健康，secondary 再起（避免未初始化时 start 失败退出）
+- name: create zitadel dir
+  ansible.builtin.file:
+    path: "{{ zitadel_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: render zitadel config yaml (v2.3.3 env DATABASE parse bug — use file config)
+  ansible.builtin.template:
+    src: zitadel-config.yaml.j2
+    dest: "{{ zitadel_dir }}/zitadel-config.yaml"
+    mode: '0644'   # 容器非 root uid 需可读
+
+- name: render zitadel docker-compose.yml (external PG)
   ansible.builtin.template:
     src: docker-compose-zitadel.yml.j2
-    dest: "{{ opic_ha_stack }}/zitadel/docker-compose.yml"
-    mode: '0644'
-  notify: docker compose up zitadel
-
-- name: set ZITADEL_MASTERKEY env
-  ansible.builtin.lineinfile:
-    path: "{{ opic_ha_stack }}/zitadel/.env"
-    line: "ZITADEL_MASTERKEY={{ zitadel_masterkey }}"
-    create: true
+    dest: "{{ zitadel_dir }}/docker-compose.yml"
     mode: '0600'
-  no_log: true
 
-- name: docker compose up zitadel
-  ansible.builtin.command: docker compose -f {{ opic_ha_stack }}/zitadel/docker-compose.yml up -d
+- name: docker compose up zitadel (primary only, first)
+  ansible.builtin.command: docker compose -f {{ zitadel_dir }}/docker-compose.yml up -d
   changed_when: true
+  when: inventory_hostname == groups['apps'][0]
+
+- name: wait zitadel primary port (from secondary nodes)
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[groups['apps'][0]].ansible_host }}"
+    port: "{{ zitadel_port }}"
+    timeout: 300
+  when: inventory_hostname != groups['apps'][0]
+
+- name: docker compose up zitadel (secondary)
+  ansible.builtin.command: docker compose -f {{ zitadel_dir }}/docker-compose.yml up -d
+  changed_when: true
+  when: inventory_hostname != groups['apps'][0]
+
+- name: wait zitadel port on all nodes
+  ansible.builtin.wait_for:
+    port: "{{ zitadel_port }}"
+    timeout: 300
+
+- name: zitadel http check
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ zitadel_port }}/ui/login/"
+    headers:
+      Host: "{{ zitadel_external_domain }}"
+    status_code: [200, 301, 302]
+  register: ztl_health
+  retries: 20
+  delay: 5
+  until: ztl_health.status in [200, 301, 302]

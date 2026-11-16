@@ -1,0 +1,48 @@
+# Apps routes — casdoor / auth(zitadel) / git(gitea) via :443
+http:
+  routers:
+    casdoor:
+      rule: "Host(`casdoor.{{ opic_base_domain }}`)"
+      entryPoints: [websecure]
+      service: casdoor-svc
+      tls: {}
+    zitadel:
+      rule: "Host(`auth.{{ opic_base_domain }}`)"
+      entryPoints: [websecure]
+      service: zitadel-svc
+      tls: {}
+    gitea:
+      rule: "Host(`git.{{ opic_base_domain }}`)"
+      entryPoints: [websecure]
+      service: gitea-svc
+      tls: {}
+  services:
+    casdoor-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+{% for h in groups['apps'] %}
+          - url: "http://{{ hostvars[h].ansible_host }}:{{ port_map.casdoor_http }}"
+{% endfor %}
+        healthCheck:
+          path: /api/healthz
+          interval: 10s
+          timeout: 5s
+    zitadel-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+{% for h in groups['apps'] %}
+          - url: "http://{{ hostvars[h].ansible_host }}:{{ port_map.zitadel_http }}"
+{% endfor %}
+        # 不做 http healthCheck：/ui/login 返回 302，traefik 只认 2xx 会误判摘除
+    gitea-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # gitea 单实例（apps[0]），数据在 NFS
+          - url: "http://{{ hostvars[groups['apps'][0]].ansible_host }}:{{ port_map.gitea_http }}"
+        healthCheck:
+          path: /api/health
+          interval: 10s
+          timeout: 5s

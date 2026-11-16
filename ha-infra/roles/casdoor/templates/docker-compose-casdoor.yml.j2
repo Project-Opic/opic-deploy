@@ -1,0 +1,13 @@
+services:
+  casdoor:
+    image: {{ casdoor_image }}
+    container_name: opic-casdoor
+    restart: no
+    network_mode: host
+    volumes:
+      - {{ casdoor_dir }}/app.conf:/conf/app.conf:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:{{ casdoor_port }}/api/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

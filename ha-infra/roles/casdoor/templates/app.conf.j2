@@ -1,0 +1,11 @@
+appname = casdoor
+httpport = {{ casdoor_port }}
+runmode = prod
+copyrequestbody = true
+driverName = postgres
+dataSourceName = postgres://{{ casdoor_db_user }}:{{ casdoor_db_pass }}@{{ casdoor_db_host }}:{{ casdoor_db_port }}/{{ casdoor_db_name }}?sslmode=disable
+dbName = {{ casdoor_db_name }}
+table_name_prefix =
+origin = {{ casdoor_origin }}
+enableSwagger = true
+enableGzip = true

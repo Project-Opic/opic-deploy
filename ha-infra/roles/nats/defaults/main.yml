@@ -1,0 +1,8 @@
+---
+# NATS ×3 JetStream 集群（pg_cluster=三台都有）
+nats_image: "nats:2.10"
+nats_dir: "{{ opic_ha_stack }}/nats"
+nats_client_port: "{{ port_map.nats_client }}"
+nats_cluster_port: "{{ port_map.nats_cluster }}"
+nats_monitor_port: "{{ port_map.nats_monitor }}"
+nats_data: "/data/nats"

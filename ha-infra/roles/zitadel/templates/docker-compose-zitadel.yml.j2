@@ -1,0 +1,17 @@
+services:
+  zitadel:
+    image: {{ zitadel_image }}
+    container_name: opic-zitadel
+    restart: no
+    network_mode: host
+    # v2.55.0：apps[0] 冷启动 start-from-init（默认 init 用户 zitadel / 口令 Zitadel!1，登录后改密）；
+    # 其余实例 start。DB 配置走挂载 YAML（v2 env 解析 DATABASE 有缺陷）；
+    # 外部由 traefik 终结 TLS → --tlsMode external；masterkey 必须 32 字节。
+    command: >-
+      {% if inventory_hostname == groups['apps'][0] %}start-from-init --config /etc/zitadel/zitadel-config.yaml --masterkeyFromEnv --tlsMode external
+      {% else %}start --config /etc/zitadel/zitadel-config.yaml --masterkeyFromEnv --tlsMode external{% endif %}
+
+    environment:
+      ZITADEL_MASTERKEY: "{{ zitadel_masterkey }}"
+    volumes:
+      - {{ zitadel_dir }}/zitadel-config.yaml:/etc/zitadel/zitadel-config.yaml:ro

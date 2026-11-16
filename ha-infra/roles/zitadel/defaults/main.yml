@@ -1,0 +1,11 @@
+---
+zitadel_image: "ghcr.io/zitadel/zitadel:v2.55.0"
+zitadel_port: "{{ port_map.zitadel_http }}"
+zitadel_dir: "{{ opic_ha_stack }}/zitadel"
+zitadel_db_host: "{{ ansible_host }}"
+zitadel_db_port: 5433
+zitadel_db_name: zitadel_db
+zitadel_db_user: opic-apps
+zitadel_db_pass: "OpicApps2026Lab"
+zitadel_masterkey: "OpicZitadel2026MasterKey0Lab2026"   # 必须 32 字节
+zitadel_external_domain: "auth.{{ opic_base_domain }}"

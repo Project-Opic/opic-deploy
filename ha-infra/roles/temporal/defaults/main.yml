@@ -1,0 +1,10 @@
+---
+temporal_image: "temporalio/auto-setup:1.24"
+temporal_dir: "{{ opic_ha_stack }}/temporal"
+temporal_db_host: "{{ ansible_host }}"
+temporal_db_port: 5433
+# schema 初始化需要权限，lab 用 postgres 超级用户
+temporal_db_user: postgres
+temporal_db_pass: "OpicPg2026Lab"
+temporal_grpc_port: "{{ port_map.temporal_grpc }}"
+temporal_ui_port: 8088
